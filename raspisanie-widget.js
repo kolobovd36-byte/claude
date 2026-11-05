@@ -148,47 +148,57 @@ function buildDay(w, data, now, first) {
         : live ? new Color("#34c759")
         : textColor;
 
+      // Урок: слева столбик времени (начало / конец), справа предмет и учитель
+      const item = st.addStack();
+      item.layoutHorizontally();
+      item.centerAlignContent();
+
+      const tc = item.addStack();
+      tc.layoutVertically();
+      tc.size = new Size(28, 0);
+      const t1 = tc.addText(fmt(l.start));
+      t1.font = Font.semiboldSystemFont(9.5);
+      t1.textColor = live ? color : gray;
+      t1.lineLimit = 1;
+      t1.minimumScaleFactor = 0.8;
+      const t2 = tc.addText(fmt(l.end));
+      t2.font = Font.systemFont(9.5);
+      t2.textColor = gray;
+      t2.lineLimit = 1;
+      t2.minimumScaleFactor = 0.8;
+      item.addSpacer(5);
+
+      const main = item.addStack();
+      main.layoutVertically();
+
       // Строка 1: номер, предмет ... кабинет справа
-      const line = st.addStack();
+      const line = main.addStack();
       line.layoutHorizontally();
       line.centerAlignContent();
       const n = line.addText(String(l.n));
-      n.font = Font.boldRoundedSystemFont(14);
+      n.font = Font.boldRoundedSystemFont(13);
       n.textColor = live ? color : gray;
-      line.addSpacer(5);
+      line.addSpacer(4);
       const t = line.addText(l.subject);
-      t.font = l.window ? Font.italicSystemFont(14) : Font.semiboldRoundedSystemFont(14);
+      t.font = l.window ? Font.italicSystemFont(13.5) : Font.semiboldRoundedSystemFont(13.5);
       t.textColor = color;
       t.lineLimit = 1;
-      t.minimumScaleFactor = 0.7;
+      t.minimumScaleFactor = 0.65;
       line.addSpacer();
       if (l.room) {
+        line.addSpacer(3);
         const r = line.addText(l.room);
-        r.font = Font.semiboldRoundedSystemFont(14);
+        r.font = Font.semiboldRoundedSystemFont(13.5);
         r.textColor = color;
+        r.lineLimit = 1;
       }
 
-      // Строка 2: имя учителя слева, время справа (под кабинетом)
-      const sub = st.addStack();
-      sub.layoutHorizontally();
-      sub.centerAlignContent();
-      sub.addSpacer(13);
-      if (l.window) {
-        const s = sub.addText(`${fmt(l.start)}–${fmt(l.end)}`);
-        s.font = Font.systemFont(10.5);
-        s.textColor = gray;
-      } else {
-        const s = sub.addText(l.teacher || "");
-        s.font = Font.systemFont(10.5);
-        s.textColor = gray;
-        s.lineLimit = 1;
-        s.minimumScaleFactor = 0.75; // длинные имена слегка уменьшаются, а не обрезаются
-        sub.addSpacer(); // время прижато вправо
-        const tm = sub.addText(fmt(l.start));
-        tm.font = Font.systemFont(9.5);
-        tm.textColor = gray;
-        tm.lineLimit = 1;
-      }
+      // Строка 2: имя и отчество учителя (длинные слегка уменьшаются)
+      const name = main.addText(l.window ? "нет урока" : (l.teacher || " "));
+      name.font = Font.systemFont(10.5);
+      name.textColor = gray;
+      name.lineLimit = 1;
+      name.minimumScaleFactor = 0.75;
       if (i < col.length - 1) st.addSpacer(3);
     });
   });
