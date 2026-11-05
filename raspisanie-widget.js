@@ -136,10 +136,10 @@ function buildDay(w, data, now, first) {
   row.addSpacer();
   const half = Math.ceil(lessons.length / 2);
   [lessons.slice(0, half), lessons.slice(half)].forEach((col, ci) => {
-    if (ci === 1) row.addSpacer(14);
+    if (ci === 1) row.addSpacer(12);
     const st = row.addStack();
     st.layoutVertically();
-    st.size = new Size(145, 0); // ширина столбца
+    st.size = new Size(148, 0); // ширина столбца
     col.forEach((l, i) => {
       const live = l.start <= now && l.end > now;
       const past = l.end <= now;
@@ -168,14 +168,27 @@ function buildDay(w, data, now, first) {
         r.textColor = color;
       }
 
-      // Строка 2: время и фамилия учителя
+      // Строка 2: имя учителя слева, время справа (под кабинетом)
       const sub = st.addStack();
+      sub.layoutHorizontally();
+      sub.centerAlignContent();
       sub.addSpacer(13);
-      const s = sub.addText(l.window ? `${fmt(l.start)}–${fmt(l.end)}` : `${fmt(l.start)}  ${l.teacher || ""}`);
-      s.minimumScaleFactor = 0.8;
-      s.font = Font.systemFont(10.5);
-      s.textColor = gray;
-      s.lineLimit = 1;
+      if (l.window) {
+        const s = sub.addText(`${fmt(l.start)}–${fmt(l.end)}`);
+        s.font = Font.systemFont(10.5);
+        s.textColor = gray;
+      } else {
+        const s = sub.addText(l.teacher || "");
+        s.font = Font.systemFont(10.5);
+        s.textColor = gray;
+        s.lineLimit = 1;
+        s.minimumScaleFactor = 0.75; // длинные имена слегка уменьшаются, а не обрезаются
+        sub.addSpacer(); // время прижато вправо
+        const tm = sub.addText(fmt(l.start));
+        tm.font = Font.systemFont(9.5);
+        tm.textColor = gray;
+        tm.lineLimit = 1;
+      }
       if (i < col.length - 1) st.addSpacer(3);
     });
   });
