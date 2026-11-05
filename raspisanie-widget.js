@@ -7,7 +7,8 @@
 const GROUPS = { en: "2", project: "1" };
 // Расписание берётся с GitHub — туда Claude вносит замены, которые ты присылаешь.
 // Пусто = брать файл schedule.json из папки Scriptable в iCloud.
-const DATA_URL = "https://raw.githubusercontent.com/kolobovd36-byte/claude/main/schedule.json";
+// Берём через GitHub API: он отдаёт свежую версию сразу, без 5-минутного кэша
+const DATA_URL = "https://api.github.com/repos/kolobovd36-byte/claude/contents/schedule.json?ref=main";
 const LOCAL_NAME = "schedule.json";
 // =====================
 
@@ -19,7 +20,8 @@ async function loadData() {
   const cache = lfm.joinPath(lfm.documentsDirectory(), "schedule-cache.json");
   if (DATA_URL) {
     try {
-      const req = new Request(DATA_URL + "?t=" + Date.now());
+      const req = new Request(DATA_URL + "&t=" + Date.now());
+      req.headers = { "Accept": "application/vnd.github.raw", "Cache-Control": "no-cache" };
       req.timeoutInterval = 10;
       const txt = await req.loadString();
       const code = req.response && req.response.statusCode;
@@ -245,7 +247,10 @@ async function build() {
   if (!list.length) { w.addText("Уроков нет"); return w; }
 
   const first = list[0];
-  w.refreshAfterDate = first.start > now ? first.start : first.end;
+  // Обновляться не реже чем раз в 15 минут, чтобы замены подтягивались быстро
+  const boundary = first.start > now ? first.start : first.end;
+  const soon = new Date(now.getTime() + 15 * 60 * 1000);
+  w.refreshAfterDate = boundary < soon ? boundary : soon;
   const when = (l) => (l.start <= now ? "Сейчас" : dayLabel(l.start, now) + fmt(l.start));
 
   // Экран блокировки — одна строка
