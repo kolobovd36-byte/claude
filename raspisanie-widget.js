@@ -101,6 +101,52 @@ function dayLabel(d, now) {
   return DAY_RU[DAYS[d.getDay()]] + ", ";
 }
 
+// Весь учебный день: сегодня, а если уроки кончились — следующий учебный день
+function buildDay(w, data, now, first) {
+  const day = new Date(first.start.getFullYear(), first.start.getMonth(), first.start.getDate());
+  const lessons = lessonsFor(data, day);
+  const textColor = Color.dynamic(Color.black(), Color.white());
+  w.setPadding(10, 12, 8, 12);
+
+  const today = ymd(day) === ymd(now);
+  const label = today ? "Сегодня" : dayLabel(day, now).replace(", ", "");
+  const head = w.addText(`${data.class || "Расписание"} · ${label}, ${DAY_RU[DAYS[day.getDay()]]}`);
+  head.font = Font.semiboldSystemFont(11);
+  head.textColor = Color.gray();
+  w.addSpacer(4);
+
+  const row = w.addStack();
+  row.layoutHorizontally();
+  const half = Math.ceil(lessons.length / 2);
+  [lessons.slice(0, half), lessons.slice(half)].forEach((col, ci) => {
+    if (ci === 1) row.addSpacer(10);
+    const st = row.addStack();
+    st.layoutVertically();
+    st.size = new Size(146, 0); // ширина столбца
+    col.forEach((l, i) => {
+      const live = l.start <= now && l.end > now;
+      const past = l.end <= now;
+      const color = past ? Color.gray()
+        : l.changed ? new Color("#ff9500")
+        : live ? new Color("#34c759")
+        : textColor;
+      const t = st.addText(`${l.n} ${l.subject}${l.room ? " · " + l.room : ""}`);
+      t.font = Font.boldSystemFont(12);
+      t.textColor = color;
+      t.lineLimit = 1;
+      t.minimumScaleFactor = 0.7;
+      const s = st.addText(`${fmt(l.start)} · ${l.teacher || ""}`);
+      s.font = Font.systemFont(9);
+      s.textColor = Color.gray();
+      s.lineLimit = 1;
+      s.minimumScaleFactor = 0.8;
+      if (i < col.length - 1) st.addSpacer(3);
+    });
+  });
+  w.addSpacer();
+  return w;
+}
+
 async function build() {
   const now = new Date();
   const family = config.widgetFamily || "medium";
@@ -132,8 +178,12 @@ async function build() {
     return w;
   }
 
-  // Главный экран
   w.backgroundColor = Color.dynamic(new Color("#ffffff"), new Color("#1c1c1e"));
+
+  // Средний виджет — весь день в два столбца
+  if (family === "medium") return buildDay(w, data, now, first);
+
+  // Главный экран
   w.setPadding(12, 14, 12, 14);
   const head = w.addText(data.class || "Расписание");
   head.font = Font.semiboldSystemFont(11);
