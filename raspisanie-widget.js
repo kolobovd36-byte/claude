@@ -3,7 +3,8 @@
 // Изменения из "changes" действуют только на указанную неделю.
 
 // ===== НАСТРОЙКИ =====
-const GROUP = "1";      // твоя группа по английскому и инд. проекту: "1" или "2"
+// Твои группы: en — английский, project — индивидуальный проект ("1" или "2")
+const GROUPS = { en: "2", project: "1" };
 // Расписание берётся с GitHub — туда Claude вносит замены, которые ты присылаешь.
 // Пусто = брать файл schedule.json из папки Scriptable в iCloud.
 const DATA_URL = "https://raw.githubusercontent.com/kolobovd36-byte/claude/main/schedule.json";
@@ -59,12 +60,13 @@ function lessonsFor(data, date) {
   const out = [];
   for (let i = 0; i < data.times.length; i++) {
     let slot = base[i] || null;
-    if (slot && slot.groups) slot = slot.groups[GROUP] || null;
+    const set = slot && slot.set;
+    if (slot && slot.groups) slot = slot.groups[GROUPS[slot.set] || "1"] || null;
     for (const ch of data.changes || []) {
       if (ch.day !== key || Number(ch.lesson) !== i + 1) continue;
       if (!ch.week || ymd(mondayOf(parseYmd(ch.week))) !== week) continue;
-      if (ch.group && String(ch.group) !== GROUP) continue;
-      const { week: _w, day: _d, lesson: _l, group: _g, cancel, ...fields } = ch;
+      if (ch.group && String(ch.group) !== (GROUPS[ch.set || set] || "1")) continue;
+      const { week: _w, day: _d, lesson: _l, group: _g, set: _s, cancel, ...fields } = ch;
       slot = cancel ? null : { ...(slot || {}), ...fields, changed: true };
     }
     if (slot && slot.subject) {
