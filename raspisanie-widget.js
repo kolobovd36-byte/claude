@@ -145,17 +145,19 @@ function buildDay(w, data, now, first) {
   const week = mondayOf(day);
   const all = lessons.slice();
   for (let k = 0; k < 5; k++) all.push(...lessonsFor(data, new Date(week.getFullYear(), week.getMonth(), week.getDate() + k)));
-  // Строка 1: номер | кабинет (плашка) | предмет — подбираем общий размер,
+  // Строка 1: номер | кабинет | предмет — подбираем общий размер,
   // при котором самый длинный предмет недели влезает целиком
-  const badgeW = (f) => Math.round((f - 2) * 0.62 * 3) + 6;
-  const subjW = (f) => MAIN_W - (f * 0.8 + 3) - badgeW(f) - 4;
+  // В моноширинном шрифте каждый символ (и пробел) ≈ 0.6em
+  const numW = (f) => f * 0.6 + 4;
+  const roomW = (f) => (f - 1) * 0.6 * 3 + 5;
+  const subjW = (f) => MAIN_W - numW(f) - roomW(f);
   const maxLen = Math.max(...all.map((l) => subj(l).length));
   let fs = 13.5;
   while (fs > 11 && maxLen * 0.56 * fs > subjW(fs)) fs -= 0.5;
   // Строка 2: имя и отчество на всю ширину (под кабинетом и предметом)
   let fn = 10.5;
   for (const l of all) {
-    if (!l.window && l.teacher) fn = Math.min(fn, (MAIN_W - fs * 0.8 - 3) / (l.teacher.length * 0.52));
+    if (!l.window && l.teacher) fn = Math.min(fn, (MAIN_W - numW(fs)) / (l.teacher.length * 0.52));
   }
   fn = Math.max(9, Math.floor(fn * 2) / 2);
   [lessons.slice(0, half), lessons.slice(half)].forEach((col, ci) => {
@@ -179,7 +181,7 @@ function buildDay(w, data, now, first) {
       // Время: моноширинные цифры, чтобы столбик был ровным
       const tc = item.addStack();
       tc.layoutVertically();
-      tc.size = new Size(30, 0);
+      tc.size = new Size(32, 0);
       const t1 = tc.addText(fmt(l.start));
       t1.font = Font.semiboldMonospacedSystemFont(9.5);
       t1.textColor = live ? color : gray;
@@ -193,43 +195,30 @@ function buildDay(w, data, now, first) {
       const main = item.addStack();
       main.layoutVertically();
 
-      // Строка 1: номер, кабинет (плашка), предмет
+      // Строка 1: номер, кабинет, предмет
       const line = main.addStack();
       line.layoutHorizontally();
       line.centerAlignContent();
-      const nb = line.addStack();
-      nb.size = new Size(Math.round(fs * 0.8), 0);
-      const n = nb.addText(String(l.n));
+      const n = line.addText(String(l.n));
       n.font = Font.boldMonospacedSystemFont(fs);
       n.textColor = live ? color : gray;
-      nb.addSpacer();
-      line.addSpacer(3);
-      // Кабинет — плашка фиксированной ширины перед предметом
-      const rb = line.addStack();
-      rb.size = new Size(badgeW(fs), 0);
-      rb.layoutHorizontally();
-      rb.centerAlignContent();
-      if (l.room) {
-        rb.backgroundColor = Color.dynamic(new Color("#ececf0"), new Color("#2c2c2e"));
-        rb.cornerRadius = 4;
-        rb.setPadding(1, 0, 1, 0);
-        rb.addSpacer();
-        const r = rb.addText(l.room);
-        r.font = Font.semiboldMonospacedSystemFont(fs - 2);
-        r.textColor = color;
-        r.lineLimit = 1;
-        rb.addSpacer();
-      }
       line.addSpacer(4);
+      // Кабинет: моноширинный шрифт, дополнен пробелами до 3 символов,
+      // поэтому предметы начинаются ровно по одной линии
+      const r = line.addText((l.room || "").slice(0, 3).padStart(3, " "));
+      r.font = Font.semiboldMonospacedSystemFont(fs - 1);
+      r.textColor = gray;
+      r.lineLimit = 1;
+      line.addSpacer(5);
       const t = line.addText(subj(l));
       t.font = l.window ? Font.italicSystemFont(fs) : Font.semiboldRoundedSystemFont(fs);
       t.textColor = color;
       t.lineLimit = 1;
       line.addSpacer();
 
-      // Строка 2: имя и отчество учителя — ровно под названием предмета
+      // Строка 2: имя и отчество учителя — под кабинетом и предметом
       const nl = main.addStack();
-      nl.addSpacer(Math.round(fs * 0.8) + 3);
+      nl.addSpacer(Math.round(numW(fs)));
       const name = nl.addText(l.window ? "нет урока" : (l.teacher || " "));
       name.font = Font.systemFont(fn);
       name.textColor = gray;
