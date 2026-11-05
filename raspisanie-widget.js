@@ -171,8 +171,8 @@ function buildDay(w, data, now, first) {
       // Строка 2: время и фамилия учителя
       const sub = st.addStack();
       sub.addSpacer(13);
-      const surname = (l.teacher || "").split(" ")[0];
-      const s = sub.addText(l.window ? `${fmt(l.start)}–${fmt(l.end)}` : `${fmt(l.start)}  ${surname}`);
+      const s = sub.addText(l.window ? `${fmt(l.start)}–${fmt(l.end)}` : `${fmt(l.start)}  ${l.teacher || ""}`);
+      s.minimumScaleFactor = 0.8;
       s.font = Font.systemFont(10.5);
       s.textColor = gray;
       s.lineLimit = 1;
