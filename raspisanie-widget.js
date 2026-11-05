@@ -147,11 +147,11 @@ function buildDay(w, data, now, first) {
   const week = mondayOf(day);
   const all = lessons.slice();
   for (let k = 0; k < 5; k++) all.push(...lessonsFor(data, new Date(week.getFullYear(), week.getMonth(), week.getDate() + k)));
-  // Строка 1: номер | кабинет | предмет — подбираем общий размер,
+  // Строка 1: номер | предмет · кабинет — подбираем общий размер,
   // при котором самый длинный предмет недели влезает целиком
   // В моноширинном шрифте каждый символ (и пробел) ≈ 0.6em
   const numW = (f) => f * 0.6 + 4;
-  const roomW = (f) => (f - 1) * 0.6 * 3 + 5;
+  const roomW = (f) => (f - 1) * 0.55 * 3 + 8; // " · 302"
   const subjW = (f) => MAIN_W - numW(f) - roomW(f);
   const maxLen = Math.max(...all.map((l) => subj(l).length));
   let fs = 13.5;
@@ -197,28 +197,28 @@ function buildDay(w, data, now, first) {
       const main = item.addStack();
       main.layoutVertically();
 
-      // Строка 1: номер, кабинет, предмет
+      // Строка 1: номер, предмет · кабинет
       const line = main.addStack();
       line.layoutHorizontally();
       line.centerAlignContent();
       const n = line.addText(String(l.n));
       n.font = Font.boldMonospacedSystemFont(fs);
       n.textColor = live ? color : gray;
-      line.addSpacer(4);
-      // Кабинет: моноширинный шрифт, дополнен пробелами до 3 символов,
-      // поэтому предметы начинаются ровно по одной линии
-      const r = line.addText((l.room || "").slice(0, 3).padStart(3, " "));
-      r.font = Font.semiboldMonospacedSystemFont(fs - 1);
-      r.textColor = gray;
-      r.lineLimit = 1;
       line.addSpacer(5);
       const t = line.addText(subj(l));
       t.font = l.window ? Font.italicSystemFont(fs) : Font.semiboldRoundedSystemFont(fs);
       t.textColor = color;
       t.lineLimit = 1;
+      // Кабинет — после предмета, серым, через точку: не путается с номером урока
+      if (l.room) {
+        const r = line.addText(" · " + l.room);
+        r.font = Font.mediumSystemFont(fs - 1);
+        r.textColor = gray;
+        r.lineLimit = 1;
+      }
       line.addSpacer();
 
-      // Строка 2: имя и отчество учителя — под кабинетом и предметом
+      // Строка 2: имя и отчество учителя — ровно под предметом
       const nl = main.addStack();
       nl.addSpacer(Math.round(numW(fs)));
       const name = nl.addText(l.window ? "нет урока" : (l.teacher || " "));
