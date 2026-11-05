@@ -22,6 +22,12 @@ async function loadData() {
       const req = new Request(DATA_URL + "?t=" + Date.now());
       req.timeoutInterval = 10;
       const txt = await req.loadString();
+      const code = req.response && req.response.statusCode;
+      if (code && code !== 200) {
+        throw new Error(code === 404
+          ? "Файл на GitHub недоступен (репозиторий приватный?)"
+          : "GitHub ответил ошибкой " + code);
+      }
       const data = JSON.parse(txt);
       lfm.writeString(cache, txt);
       return data;
