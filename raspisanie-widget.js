@@ -147,9 +147,9 @@ function buildDay(w, data, now, first) {
   for (let k = 0; k < 5; k++) all.push(...lessonsFor(data, new Date(week.getFullYear(), week.getMonth(), week.getDate() + k)));
   let fs = 13.5, fn = 10.5;
   for (const l of all) {
-    const chars = subj(l).length + (l.room ? l.room.length + 1 : 0) + 1.5;
-    fs = Math.min(fs, MAIN_W / (chars * 0.56));
-    if (!l.window && l.teacher) fn = Math.min(fn, MAIN_W / (l.teacher.length * 0.55));
+    // номер (0.8em) + кабинет на 3 цифры (1.86em) + предмет
+    fs = Math.min(fs, (MAIN_W - 5) / (2.66 + subj(l).length * 0.56));
+    if (!l.window && l.teacher) fn = Math.min(fn, (MAIN_W - fs * 0.8 - 3) / (l.teacher.length * 0.52));
   }
   fs = Math.max(11, Math.floor(fs * 2) / 2);
   fn = Math.max(9, Math.floor(fn * 2) / 2);
@@ -171,45 +171,53 @@ function buildDay(w, data, now, first) {
       item.layoutHorizontally();
       item.centerAlignContent();
 
+      // Время: моноширинные цифры, чтобы столбик был ровным
       const tc = item.addStack();
       tc.layoutVertically();
-      tc.size = new Size(28, 0);
+      tc.size = new Size(30, 0);
       const t1 = tc.addText(fmt(l.start));
-      t1.font = Font.semiboldSystemFont(9.5);
+      t1.font = Font.semiboldMonospacedSystemFont(9.5);
       t1.textColor = live ? color : gray;
       t1.lineLimit = 1;
       const t2 = tc.addText(fmt(l.end));
-      t2.font = Font.systemFont(9.5);
+      t2.font = Font.regularMonospacedSystemFont(9.5);
       t2.textColor = gray;
       t2.lineLimit = 1;
-      item.addSpacer(5);
+      item.addSpacer(4);
 
       const main = item.addStack();
       main.layoutVertically();
 
-      // Строка 1: номер, предмет ... кабинет справа
+      // Строка 1: номер (фикс. ширина), предмет ... кабинет (фикс. ширина, по правому краю)
       const line = main.addStack();
       line.layoutHorizontally();
       line.centerAlignContent();
-      const n = line.addText(String(l.n));
-      n.font = Font.boldRoundedSystemFont(fs);
+      const nb = line.addStack();
+      nb.size = new Size(Math.round(fs * 0.8), 0);
+      const n = nb.addText(String(l.n));
+      n.font = Font.boldMonospacedSystemFont(fs);
       n.textColor = live ? color : gray;
-      line.addSpacer(4);
+      nb.addSpacer();
+      line.addSpacer(3);
       const t = line.addText(subj(l));
       t.font = l.window ? Font.italicSystemFont(fs) : Font.semiboldRoundedSystemFont(fs);
       t.textColor = color;
       t.lineLimit = 1;
       line.addSpacer();
+      const rb = line.addStack();
+      rb.size = new Size(Math.round(fs * 0.62 * 3) + 2, 0);
+      rb.addSpacer();
       if (l.room) {
-        line.addSpacer(3);
-        const r = line.addText(l.room);
-        r.font = Font.semiboldRoundedSystemFont(fs);
+        const r = rb.addText(l.room);
+        r.font = Font.semiboldMonospacedSystemFont(fs);
         r.textColor = color;
         r.lineLimit = 1;
       }
 
-      // Строка 2: имя и отчество учителя (длинные слегка уменьшаются)
-      const name = main.addText(l.window ? "нет урока" : (l.teacher || " "));
+      // Строка 2: имя и отчество учителя — ровно под названием предмета
+      const nl = main.addStack();
+      nl.addSpacer(Math.round(fs * 0.8) + 3);
+      const name = nl.addText(l.window ? "нет урока" : (l.teacher || " "));
       name.font = Font.systemFont(fn);
       name.textColor = gray;
       name.lineLimit = 1;
