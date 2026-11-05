@@ -140,18 +140,23 @@ function buildDay(w, data, now, first) {
   // предмету и имени, чтобы всё влезло и выглядело одинаково
   const SHORT = { "Обществознание": "Общество", "Русский язык": "Русский" };
   const subj = (l) => SHORT[l.subject] || l.subject;
-  const MAIN_W = 112; // ширина под предмет и кабинет (pt)
+  const MAIN_W = 112; // ширина под номер, кабинет, предмет и имя (pt)
   // Считаем по всей неделе, чтобы размер не прыгал от дня к дню
   const week = mondayOf(day);
   const all = lessons.slice();
   for (let k = 0; k < 5; k++) all.push(...lessonsFor(data, new Date(week.getFullYear(), week.getMonth(), week.getDate() + k)));
-  let fs = 13.5, fn = 10.5;
+  // Строка 1: номер | кабинет (плашка) | предмет — подбираем общий размер,
+  // при котором самый длинный предмет недели влезает целиком
+  const badgeW = (f) => Math.round((f - 2) * 0.62 * 3) + 6;
+  const subjW = (f) => MAIN_W - (f * 0.8 + 3) - badgeW(f) - 4;
+  const maxLen = Math.max(...all.map((l) => subj(l).length));
+  let fs = 13.5;
+  while (fs > 11 && maxLen * 0.56 * fs > subjW(fs)) fs -= 0.5;
+  // Строка 2: имя и отчество на всю ширину (под кабинетом и предметом)
+  let fn = 10.5;
   for (const l of all) {
-    // номер (0.8em) + кабинет на 3 цифры (1.86em) + предмет
-    fs = Math.min(fs, (MAIN_W - 5) / (2.66 + subj(l).length * 0.56));
     if (!l.window && l.teacher) fn = Math.min(fn, (MAIN_W - fs * 0.8 - 3) / (l.teacher.length * 0.52));
   }
-  fs = Math.max(11, Math.floor(fs * 2) / 2);
   fn = Math.max(9, Math.floor(fn * 2) / 2);
   [lessons.slice(0, half), lessons.slice(half)].forEach((col, ci) => {
     if (ci === 1) row.addSpacer(12);
@@ -188,7 +193,7 @@ function buildDay(w, data, now, first) {
       const main = item.addStack();
       main.layoutVertically();
 
-      // Строка 1: номер (фикс. ширина), предмет ... кабинет (фикс. ширина, по правому краю)
+      // Строка 1: номер, кабинет (плашка), предмет
       const line = main.addStack();
       line.layoutHorizontally();
       line.centerAlignContent();
@@ -199,20 +204,28 @@ function buildDay(w, data, now, first) {
       n.textColor = live ? color : gray;
       nb.addSpacer();
       line.addSpacer(3);
+      // Кабинет — плашка фиксированной ширины перед предметом
+      const rb = line.addStack();
+      rb.size = new Size(badgeW(fs), 0);
+      rb.layoutHorizontally();
+      rb.centerAlignContent();
+      if (l.room) {
+        rb.backgroundColor = Color.dynamic(new Color("#ececf0"), new Color("#2c2c2e"));
+        rb.cornerRadius = 4;
+        rb.setPadding(1, 0, 1, 0);
+        rb.addSpacer();
+        const r = rb.addText(l.room);
+        r.font = Font.semiboldMonospacedSystemFont(fs - 2);
+        r.textColor = color;
+        r.lineLimit = 1;
+        rb.addSpacer();
+      }
+      line.addSpacer(4);
       const t = line.addText(subj(l));
       t.font = l.window ? Font.italicSystemFont(fs) : Font.semiboldRoundedSystemFont(fs);
       t.textColor = color;
       t.lineLimit = 1;
       line.addSpacer();
-      const rb = line.addStack();
-      rb.size = new Size(Math.round(fs * 0.62 * 3) + 2, 0);
-      rb.addSpacer();
-      if (l.room) {
-        const r = rb.addText(l.room);
-        r.font = Font.semiboldMonospacedSystemFont(fs);
-        r.textColor = color;
-        r.lineLimit = 1;
-      }
 
       // Строка 2: имя и отчество учителя — ровно под названием предмета
       const nl = main.addStack();
