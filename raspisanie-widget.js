@@ -106,44 +106,72 @@ function buildDay(w, data, now, first) {
   const day = new Date(first.start.getFullYear(), first.start.getMonth(), first.start.getDate());
   const lessons = lessonsFor(data, day);
   const textColor = Color.dynamic(Color.black(), Color.white());
-  w.setPadding(10, 12, 8, 12);
+  const gray = Color.dynamic(new Color("#8e8e93"), new Color("#98989f"));
+  w.setPadding(7, 10, 7, 10);
+  w.addSpacer(); // центрирование по вертикали
 
+  // Заголовок по центру
   const today = ymd(day) === ymd(now);
   const label = today ? "Сегодня" : dayLabel(day, now).replace(", ", "");
-  const head = w.addText(`${data.class || "Расписание"} · ${label}, ${DAY_RU[DAYS[day.getDay()]]}`);
-  head.font = Font.semiboldSystemFont(11);
-  head.textColor = Color.gray();
+  const hs = w.addStack();
+  hs.addSpacer();
+  const head = hs.addText(`${label} · ${DAY_RU[DAYS[day.getDay()]]}`.toUpperCase());
+  head.font = Font.semiboldSystemFont(10);
+  head.textColor = gray;
+  hs.addSpacer();
   w.addSpacer(4);
 
+  // Два столбца, по центру по горизонтали
   const row = w.addStack();
   row.layoutHorizontally();
+  row.addSpacer();
   const half = Math.ceil(lessons.length / 2);
   [lessons.slice(0, half), lessons.slice(half)].forEach((col, ci) => {
-    if (ci === 1) row.addSpacer(10);
+    if (ci === 1) row.addSpacer(14);
     const st = row.addStack();
     st.layoutVertically();
-    st.size = new Size(146, 0); // ширина столбца
+    st.size = new Size(145, 0); // ширина столбца
     col.forEach((l, i) => {
       const live = l.start <= now && l.end > now;
       const past = l.end <= now;
-      const color = past ? Color.gray()
+      const color = past ? gray
         : l.changed ? new Color("#ff9500")
         : live ? new Color("#34c759")
         : textColor;
-      const t = st.addText(`${l.n} ${l.subject}${l.room ? " · " + l.room : ""}`);
-      t.font = Font.boldSystemFont(12);
+
+      // Строка 1: номер, предмет ... кабинет справа
+      const line = st.addStack();
+      line.layoutHorizontally();
+      line.centerAlignContent();
+      const n = line.addText(String(l.n));
+      n.font = Font.boldRoundedSystemFont(14);
+      n.textColor = live ? color : gray;
+      line.addSpacer(5);
+      const t = line.addText(l.subject);
+      t.font = Font.semiboldRoundedSystemFont(14);
       t.textColor = color;
       t.lineLimit = 1;
       t.minimumScaleFactor = 0.7;
-      const s = st.addText(`${fmt(l.start)} · ${l.teacher || ""}`);
-      s.font = Font.systemFont(9);
-      s.textColor = Color.gray();
+      line.addSpacer();
+      if (l.room) {
+        const r = line.addText(l.room);
+        r.font = Font.semiboldRoundedSystemFont(14);
+        r.textColor = color;
+      }
+
+      // Строка 2: время и фамилия учителя
+      const sub = st.addStack();
+      sub.addSpacer(13);
+      const surname = (l.teacher || "").split(" ")[0];
+      const s = sub.addText(`${fmt(l.start)}  ${surname}`);
+      s.font = Font.systemFont(10.5);
+      s.textColor = gray;
       s.lineLimit = 1;
-      s.minimumScaleFactor = 0.8;
       if (i < col.length - 1) st.addSpacer(3);
     });
   });
-  w.addSpacer();
+  row.addSpacer();
+  w.addSpacer(); // центрирование по вертикали
   return w;
 }
 
