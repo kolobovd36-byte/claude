@@ -135,6 +135,24 @@ function buildDay(w, data, now, first) {
   row.layoutHorizontally();
   row.addSpacer();
   const half = Math.ceil(lessons.length / 2);
+
+  // Один размер шрифта на весь виджет: подбираем его по самому длинному
+  // предмету и имени, чтобы всё влезло и выглядело одинаково
+  const SHORT = { "Обществознание": "Общество", "Русский язык": "Русский" };
+  const subj = (l) => SHORT[l.subject] || l.subject;
+  const MAIN_W = 112; // ширина под предмет и кабинет (pt)
+  // Считаем по всей неделе, чтобы размер не прыгал от дня к дню
+  const week = mondayOf(day);
+  const all = lessons.slice();
+  for (let k = 0; k < 5; k++) all.push(...lessonsFor(data, new Date(week.getFullYear(), week.getMonth(), week.getDate() + k)));
+  let fs = 13.5, fn = 10.5;
+  for (const l of all) {
+    const chars = subj(l).length + (l.room ? l.room.length + 1 : 0) + 1.5;
+    fs = Math.min(fs, MAIN_W / (chars * 0.56));
+    if (!l.window && l.teacher) fn = Math.min(fn, MAIN_W / (l.teacher.length * 0.55));
+  }
+  fs = Math.max(11, Math.floor(fs * 2) / 2);
+  fn = Math.max(9, Math.floor(fn * 2) / 2);
   [lessons.slice(0, half), lessons.slice(half)].forEach((col, ci) => {
     if (ci === 1) row.addSpacer(12);
     const st = row.addStack();
@@ -160,12 +178,10 @@ function buildDay(w, data, now, first) {
       t1.font = Font.semiboldSystemFont(9.5);
       t1.textColor = live ? color : gray;
       t1.lineLimit = 1;
-      t1.minimumScaleFactor = 0.8;
       const t2 = tc.addText(fmt(l.end));
       t2.font = Font.systemFont(9.5);
       t2.textColor = gray;
       t2.lineLimit = 1;
-      t2.minimumScaleFactor = 0.8;
       item.addSpacer(5);
 
       const main = item.addStack();
@@ -176,29 +192,27 @@ function buildDay(w, data, now, first) {
       line.layoutHorizontally();
       line.centerAlignContent();
       const n = line.addText(String(l.n));
-      n.font = Font.boldRoundedSystemFont(13);
+      n.font = Font.boldRoundedSystemFont(fs);
       n.textColor = live ? color : gray;
       line.addSpacer(4);
-      const t = line.addText(l.subject);
-      t.font = l.window ? Font.italicSystemFont(13.5) : Font.semiboldRoundedSystemFont(13.5);
+      const t = line.addText(subj(l));
+      t.font = l.window ? Font.italicSystemFont(fs) : Font.semiboldRoundedSystemFont(fs);
       t.textColor = color;
       t.lineLimit = 1;
-      t.minimumScaleFactor = 0.65;
       line.addSpacer();
       if (l.room) {
         line.addSpacer(3);
         const r = line.addText(l.room);
-        r.font = Font.semiboldRoundedSystemFont(13.5);
+        r.font = Font.semiboldRoundedSystemFont(fs);
         r.textColor = color;
         r.lineLimit = 1;
       }
 
       // Строка 2: имя и отчество учителя (длинные слегка уменьшаются)
       const name = main.addText(l.window ? "нет урока" : (l.teacher || " "));
-      name.font = Font.systemFont(10.5);
+      name.font = Font.systemFont(fn);
       name.textColor = gray;
       name.lineLimit = 1;
-      name.minimumScaleFactor = 0.75;
       if (i < col.length - 1) st.addSpacer(3);
     });
   });
