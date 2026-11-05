@@ -4,7 +4,9 @@
 
 // ===== НАСТРОЙКИ =====
 const GROUP = "1";      // твоя группа по английскому и инд. проекту: "1" или "2"
-const DATA_URL = "";    // raw-ссылка на schedule.json (GitHub). Пусто = файл schedule.json из папки Scriptable в iCloud
+// Расписание берётся с GitHub — туда Claude вносит замены, которые ты присылаешь.
+// Пусто = брать файл schedule.json из папки Scriptable в iCloud.
+const DATA_URL = "https://raw.githubusercontent.com/kolobovd36-byte/claude/main/schedule.json";
 const LOCAL_NAME = "schedule.json";
 // =====================
 
