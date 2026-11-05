@@ -104,7 +104,16 @@ function dayLabel(d, now) {
 // Весь учебный день: сегодня, а если уроки кончились — следующий учебный день
 function buildDay(w, data, now, first) {
   const day = new Date(first.start.getFullYear(), first.start.getMonth(), first.start.getDate());
-  const lessons = lessonsFor(data, day);
+  // Пустые места до последнего урока заполняем «окнами»
+  const real = lessonsFor(data, day);
+  const lastN = Math.max(...real.map((l) => l.n));
+  const lessons = [];
+  for (let n = 1; n <= lastN; n++) {
+    const l = real.find((x) => x.n === n);
+    if (l) { lessons.push(l); continue; }
+    const [s, e] = data.times[n - 1];
+    lessons.push({ n, subject: "Окно", window: true, start: atTime(day, s), end: atTime(day, e) });
+  }
   const textColor = Color.dynamic(Color.black(), Color.white());
   const gray = Color.dynamic(new Color("#8e8e93"), new Color("#98989f"));
   w.setPadding(7, 10, 7, 10);
@@ -134,7 +143,7 @@ function buildDay(w, data, now, first) {
     col.forEach((l, i) => {
       const live = l.start <= now && l.end > now;
       const past = l.end <= now;
-      const color = past ? gray
+      const color = past || l.window ? gray
         : l.changed ? new Color("#ff9500")
         : live ? new Color("#34c759")
         : textColor;
@@ -148,7 +157,7 @@ function buildDay(w, data, now, first) {
       n.textColor = live ? color : gray;
       line.addSpacer(5);
       const t = line.addText(l.subject);
-      t.font = Font.semiboldRoundedSystemFont(14);
+      t.font = l.window ? Font.italicSystemFont(14) : Font.semiboldRoundedSystemFont(14);
       t.textColor = color;
       t.lineLimit = 1;
       t.minimumScaleFactor = 0.7;
@@ -163,7 +172,7 @@ function buildDay(w, data, now, first) {
       const sub = st.addStack();
       sub.addSpacer(13);
       const surname = (l.teacher || "").split(" ")[0];
-      const s = sub.addText(`${fmt(l.start)}  ${surname}`);
+      const s = sub.addText(l.window ? `${fmt(l.start)}–${fmt(l.end)}` : `${fmt(l.start)}  ${surname}`);
       s.font = Font.systemFont(10.5);
       s.textColor = gray;
       s.lineLimit = 1;
