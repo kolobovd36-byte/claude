@@ -1,59 +1,63 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" width="640" height="640">
   <defs>
-    <radialGradient id="bg" cx="50%" cy="38%" r="75%">
-      <stop offset="0" stop-color="#ff4a3d"/>
-      <stop offset="0.55" stop-color="#c8141c"/>
-      <stop offset="1" stop-color="#5a0008"/>
+    <radialGradient id="bg" cx="50%" cy="42%" r="72%">
+      <stop offset="0" stop-color="#a3060c"/>
+      <stop offset="0.5" stop-color="#6e0207"/>
+      <stop offset="1" stop-color="#220002"/>
     </radialGradient>
+    <radialGradient id="halo" cx="50%" cy="45%" r="40%">
+      <stop offset="0" stop-color="#ff2a1f" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#ff2a1f" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b2b30"/>
+      <stop offset="1" stop-color="#121215"/>
+    </linearGradient>
     <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#2a0306"/>
-      <stop offset="1" stop-color="#14000a"/>
+      <stop offset="0" stop-color="#1c0204"/>
+      <stop offset="1" stop-color="#090001"/>
     </linearGradient>
     <linearGradient id="q" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ff7a6e"/>
-      <stop offset="1" stop-color="#ff2b2b"/>
+      <stop offset="0" stop-color="#ff6b5c"/>
+      <stop offset="1" stop-color="#e3000f"/>
     </linearGradient>
-    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="9" result="b"/>
-      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    <filter id="rim" x="-30%" y="-30%" width="160%" height="160%">
+      <feMorphology in="SourceAlpha" operator="dilate" radius="5" result="d"/>
+      <feFlood flood-color="#ff2a1f"/>
+      <feComposite in2="d" operator="in" result="edge"/>
+      <feGaussianBlur in="edge" stdDeviation="14" result="glow"/>
+      <feMerge><feMergeNode in="glow"/><feMergeNode in="edge"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
-    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
-      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#2a0004" flood-opacity="0.55"/>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="10" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="grain">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="4"/>
+      <feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.07 0"/>
     </filter>
   </defs>
 
-  <!-- Фон -->
+  <!-- Тёмно-красный фон с виньеткой и лёгким зерном -->
   <rect width="640" height="640" fill="url(#bg)"/>
+  <rect width="640" height="640" filter="url(#grain)"/>
+  <circle cx="320" cy="290" r="260" fill="url(#halo)"/>
 
-  <!-- Дорожки микросхемы на фоне -->
-  <g stroke="#ff8a7a" stroke-opacity="0.16" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M0 150 H110 L150 190 H210"/>
-    <path d="M0 470 H90 L130 430 H190"/>
-    <path d="M640 170 H540 L500 210 H440"/>
-    <path d="M640 480 H560 L520 440 H460"/>
-    <path d="M200 0 V70 L240 110"/>
-    <path d="M440 640 V575 L400 535"/>
+  <!-- Монитор: тёмный корпус с красным неоновым контуром -->
+  <g filter="url(#rim)">
+    <rect x="160" y="148" width="320" height="232" rx="28" fill="url(#body)"/>
+    <path d="M292 378 H348 L360 426 H280 Z" fill="url(#body)"/>
+    <rect x="232" y="422" width="176" height="24" rx="12" fill="url(#body)"/>
   </g>
-  <g fill="#ff8a7a" fill-opacity="0.22">
-    <circle cx="210" cy="190" r="9"/><circle cx="190" cy="430" r="9"/>
-    <circle cx="440" cy="210" r="9"/><circle cx="460" cy="440" r="9"/>
-    <circle cx="240" cy="110" r="9"/><circle cx="400" cy="535" r="9"/>
-  </g>
+  <rect x="180" y="168" width="280" height="192" rx="14" fill="url(#screen)"/>
+  <rect x="180" y="168" width="280" height="192" rx="14" fill="none" stroke="#ff2a1f" stroke-opacity="0.35" stroke-width="2"/>
 
-  <!-- Монитор -->
-  <g filter="url(#shadow)">
-    <rect x="160" y="150" width="320" height="230" rx="30" fill="#ffffff"/>
-    <rect x="182" y="172" width="276" height="186" rx="16" fill="url(#screen)"/>
-    <path d="M290 380 H350 L362 428 H278 Z" fill="#ffffff"/>
-    <rect x="236" y="424" width="168" height="22" rx="11" fill="#ffffff"/>
-  </g>
-
-  <!-- Вопросительный знак на экране -->
+  <!-- Вопросительный знак -->
   <g filter="url(#glow)" fill="none" stroke="url(#q)" stroke-width="30" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M276 232 C276 200 298 186 320 186 C344 186 366 202 366 228 C366 256 334 262 324 280 C320 287 320 294 320 302"/>
+    <path d="M276 230 C276 198 298 184 320 184 C344 184 366 200 366 226 C366 254 334 260 324 278 C320 285 320 292 320 300"/>
   </g>
-  <circle cx="320" cy="336" r="17" fill="#ff3b30" filter="url(#glow)"/>
+  <circle cx="320" cy="336" r="17" fill="#ff2a1f" filter="url(#glow)"/>
 
-  <!-- Надпись -->
-  <text x="320" y="526" text-anchor="middle" font-family="Inter, DejaVu Sans, sans-serif" font-weight="900" font-size="78" letter-spacing="10" fill="#ffffff">AFK</text>
+  <!-- Надпись с красным свечением -->
+  <text x="320" y="530" text-anchor="middle" font-family="Inter, DejaVu Sans, sans-serif" font-weight="900" font-size="80" letter-spacing="10" fill="#ffffff" filter="url(#rim)">AFK</text>
 </svg>
