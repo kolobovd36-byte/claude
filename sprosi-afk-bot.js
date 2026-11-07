@@ -6,7 +6,7 @@
 //   WEBHOOK_SECRET  — любая строка из латиницы, цифр, _ и - (secret)
 //   ADMIN_ID        — числовой Telegram ID автора канала (ему приходят вопросы)
 //   GEMINI_API_KEY  — ключ Gemini API (secret, необязательно: без него бот просто собирает вопросы)
-//   GEMINI_MODEL    — модель Gemini (необязательно, по умолчанию gemini-flash-latest — всегда актуальная Flash-модель)
+//   GEMINI_MODEL    — модель Gemini (необязательно, по умолчанию gemini-flash-latest; быстрее — gemini-flash-lite-latest)
 //   DAILY_LIMIT     — сколько вопросов в день можно одному человеку (необязательно, по умолчанию 5)
 // KV-хранилище: привязка с именем DB (Settings → Bindings → KV namespace).
 
@@ -131,7 +131,9 @@ async function onQuestion(m, text, isAdmin, env) {
   }
   await env.DB.put(limKey, String(used + 1), { expirationTtl: 60 * 60 * 26 });
 
-  await tg(env, "sendChatAction", { chat_id: chatId, action: "typing" });
+  // Сразу показываем, что бот работает, а потом заменяем это сообщение готовым ответом
+  const thinking = await tg(env, "sendMessage", { chat_id: chatId, text: "🤔 Думаю над ответом… (до 20 секунд)" });
+  const thinkingId = thinking && thinking.ok ? thinking.result.message_id : null;
 
   let answer = null;
   try {
@@ -156,19 +158,18 @@ async function onQuestion(m, text, isAdmin, env) {
   const total = parseInt((await env.DB.get("total")) || "0", 10);
   await env.DB.put("total", String(total + 1));
 
-  if (answer) {
-    await send(
-      env,
-      chatId,
-      `${answer}\n\n— — —\n🤖 Это ответ ИИ, он может ошибаться. Твой вопрос передан автору канала — лучшие разберём в рубрике «Вопрос-ответ».`
-    );
-  } else {
-    await send(
-      env,
-      chatId,
-      "Принял вопрос! ✅ ИИ сейчас отдыхает, но автор канала увидит вопрос и может ответить лично или в рубрике «Вопрос-ответ»."
-    );
-  }
+  const reply = answer
+    ? `${answer}\n\n— — —\n🤖 Это ответ ИИ, он может ошибаться. Твой вопрос передан автору канала — лучшие разберём в рубрике «Вопрос-ответ».`
+    : "Принял вопрос! ✅ ИИ сейчас отдыхает, но автор канала увидит вопрос и может ответить лично или в рубрике «Вопрос-ответ».";
+  const edited = thinkingId
+    ? await tg(env, "editMessageText", {
+        chat_id: chatId,
+        message_id: thinkingId,
+        text: short(reply, 4000),
+        disable_web_page_preview: true,
+      })
+    : null;
+  if (!edited || !edited.ok) await send(env, chatId, reply);
 
   await notifyAdmin(env, q);
 }
