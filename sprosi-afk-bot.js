@@ -6,7 +6,7 @@
 //   WEBHOOK_SECRET  — любая строка из латиницы, цифр, _ и - (secret)
 //   ADMIN_ID        — числовой Telegram ID автора канала (ему приходят вопросы)
 //   GEMINI_API_KEY  — ключ Gemini API (secret, необязательно: без него бот просто собирает вопросы)
-//   GEMINI_MODEL    — модель Gemini (необязательно, по умолчанию gemini-2.5-flash)
+//   GEMINI_MODEL    — модель Gemini (необязательно, по умолчанию gemini-flash-latest — всегда актуальная Flash-модель)
 //   DAILY_LIMIT     — сколько вопросов в день можно одному человеку (необязательно, по умолчанию 5)
 // KV-хранилище: привязка с именем DB (Settings → Bindings → KV namespace).
 
@@ -252,7 +252,7 @@ async function listQuestions(env, chatId, onlyStarred) {
 
 async function askGemini(question, env) {
   if (!env.GEMINI_API_KEY) return null;
-  const model = env.GEMINI_MODEL || "gemini-2.5-flash";
+  const model = env.GEMINI_MODEL || "gemini-flash-latest";
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
     {

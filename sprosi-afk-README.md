@@ -56,7 +56,7 @@ Worker → **Settings** → **Variables and Secrets** → **Add**:
 | `GEMINI_API_KEY` | Secret | ключ из AI Studio |
 | `ADMIN_ID` | Text | ID автора канала |
 | `DAILY_LIMIT` | Text | необязательно, по умолчанию `5` |
-| `GEMINI_MODEL` | Text | необязательно, по умолчанию `gemini-2.5-flash` |
+| `GEMINI_MODEL` | Text | необязательно, по умолчанию `gemini-flash-latest` |
 
 ### 7. Включить бота
 Открой в браузере адрес (подставь свой поддомен и секрет):
