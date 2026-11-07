@@ -1,63 +1,78 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" width="640" height="640">
   <defs>
-    <radialGradient id="bg" cx="50%" cy="42%" r="72%">
-      <stop offset="0" stop-color="#a3060c"/>
-      <stop offset="0.5" stop-color="#6e0207"/>
-      <stop offset="1" stop-color="#220002"/>
+    <radialGradient id="bg" cx="50%" cy="40%" r="74%">
+      <stop offset="0" stop-color="#8f050b"/>
+      <stop offset="0.5" stop-color="#5c0207"/>
+      <stop offset="1" stop-color="#1a0002"/>
     </radialGradient>
-    <radialGradient id="halo" cx="50%" cy="45%" r="40%">
-      <stop offset="0" stop-color="#ff2a1f" stop-opacity="0.45"/>
+    <radialGradient id="underglow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#ff2a1f" stop-opacity="0.95"/>
+      <stop offset="0.45" stop-color="#ff2a1f" stop-opacity="0.35"/>
       <stop offset="1" stop-color="#ff2a1f" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#2b2b30"/>
-      <stop offset="1" stop-color="#121215"/>
+    <linearGradient id="skirt" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#26080b"/>
+      <stop offset="1" stop-color="#0b0204"/>
     </linearGradient>
-    <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#1c0204"/>
-      <stop offset="1" stop-color="#090001"/>
+    <linearGradient id="top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3d1015"/>
+      <stop offset="1" stop-color="#1c0508"/>
     </linearGradient>
-    <linearGradient id="q" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ff6b5c"/>
-      <stop offset="1" stop-color="#e3000f"/>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.22"/>
+      <stop offset="0.35" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
+    <linearGradient id="legend" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff8a7d"/>
+      <stop offset="1" stop-color="#ff1a12"/>
+    </linearGradient>
+    <filter id="blur30"><feGaussianBlur stdDeviation="30"/></filter>
     <filter id="rim" x="-30%" y="-30%" width="160%" height="160%">
-      <feMorphology in="SourceAlpha" operator="dilate" radius="5" result="d"/>
+      <feMorphology in="SourceAlpha" operator="dilate" radius="3" result="d"/>
       <feFlood flood-color="#ff2a1f"/>
       <feComposite in2="d" operator="in" result="edge"/>
-      <feGaussianBlur in="edge" stdDeviation="14" result="glow"/>
+      <feGaussianBlur in="edge" stdDeviation="12" result="glow"/>
       <feMerge><feMergeNode in="glow"/><feMergeNode in="edge"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
-    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="10" result="b"/>
+    <filter id="neon" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="9" result="b"/>
       <feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
+    <filter id="softglow" x="-40%" y="-80%" width="180%" height="260%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="10" result="a"/>
+      <feFlood flood-color="#ff2a1f" flood-opacity="0.85"/>
+      <feComposite in2="a" operator="in" result="g"/>
+      <feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
     <filter id="grain">
-      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="4"/>
-      <feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.07 0"/>
+      <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="7"/>
+      <feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.08 0"/>
     </filter>
   </defs>
 
-  <!-- Тёмно-красный фон с виньеткой и лёгким зерном -->
+  <!-- Фон -->
   <rect width="640" height="640" fill="url(#bg)"/>
   <rect width="640" height="640" filter="url(#grain)"/>
-  <circle cx="320" cy="290" r="260" fill="url(#halo)"/>
 
-  <!-- Монитор: тёмный корпус с красным неоновым контуром -->
+  <!-- Подсветка из-под клавиши -->
+  <ellipse cx="320" cy="368" rx="200" ry="70" fill="url(#underglow)" filter="url(#blur30)"/>
+
+  <!-- Клавиша: юбка (основание) -->
   <g filter="url(#rim)">
-    <rect x="160" y="148" width="320" height="232" rx="28" fill="url(#body)"/>
-    <path d="M292 378 H348 L360 426 H280 Z" fill="url(#body)"/>
-    <rect x="232" y="422" width="176" height="24" rx="12" fill="url(#body)"/>
+    <path d="M196 132 Q196 104 224 104 H416 Q444 104 444 132 L462 352 Q464 384 432 384 H208 Q176 384 178 352 Z" fill="url(#skirt)"/>
   </g>
-  <rect x="180" y="168" width="280" height="192" rx="14" fill="url(#screen)"/>
-  <rect x="180" y="168" width="280" height="192" rx="14" fill="none" stroke="#ff2a1f" stroke-opacity="0.35" stroke-width="2"/>
+  <!-- Боковые грани -->
+  <path d="M196 132 L178 352 Q176 384 208 384 L222 330 Z" fill="#000" fill-opacity="0.35"/>
+  <path d="M444 132 L462 352 Q464 384 432 384 L418 330 Z" fill="#000" fill-opacity="0.35"/>
+  <!-- Верхняя площадка с лёгкой «чашей» -->
+  <rect x="218" y="116" width="204" height="214" rx="30" fill="url(#top)"/>
+  <rect x="218" y="116" width="204" height="214" rx="30" fill="url(#sheen)"/>
+  <rect x="218.5" y="116.5" width="203" height="213" rx="29.5" fill="none" stroke="#ff6b5c" stroke-opacity="0.28" stroke-width="1.5"/>
 
-  <!-- Вопросительный знак -->
-  <g filter="url(#glow)" fill="none" stroke="url(#q)" stroke-width="30" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M276 230 C276 198 298 184 320 184 C344 184 366 200 366 226 C366 254 334 260 324 278 C320 285 320 292 320 300"/>
-  </g>
-  <circle cx="320" cy="336" r="17" fill="#ff2a1f" filter="url(#glow)"/>
+  <!-- Легенда «?» -->
+  <text x="320" y="282" text-anchor="middle" font-family="Inter Display" font-weight="900" font-size="168" fill="url(#legend)" filter="url(#neon)">?</text>
 
-  <!-- Надпись с красным свечением -->
-  <text x="320" y="530" text-anchor="middle" font-family="Inter, DejaVu Sans, sans-serif" font-weight="900" font-size="80" letter-spacing="10" fill="#ffffff" filter="url(#rim)">AFK</text>
+  <!-- Надписи -->
+  <text x="320" y="452" text-anchor="middle" font-family="Inter Display" font-weight="700" font-size="25" letter-spacing="13" fill="#ff5a4c">СПРОСИ</text>
+  <text x="314" y="540" text-anchor="middle" font-family="Inter Display" font-style="italic" font-weight="900" font-size="104" letter-spacing="-3" fill="#ffffff" filter="url(#softglow)">AFK</text>
 </svg>
