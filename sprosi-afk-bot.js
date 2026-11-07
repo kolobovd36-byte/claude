@@ -253,10 +253,14 @@ async function listQuestions(env, chatId, onlyStarred) {
 async function askGemini(question, env) {
   if (!env.GEMINI_API_KEY) return null;
   const model = env.GEMINI_MODEL || "gemini-flash-latest";
+  // Ждём ИИ не дольше 20 секунд, иначе Cloudflare может оборвать обработку и бот промолчит
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
     {
       method: "POST",
+      signal: controller.signal,
       headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
@@ -264,7 +268,7 @@ async function askGemini(question, env) {
         generationConfig: { temperature: 0.6, maxOutputTokens: 2048 },
       }),
     }
-  );
+  ).finally(() => clearTimeout(timer));
   if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
   const parts = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) || [];
