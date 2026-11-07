@@ -8,6 +8,7 @@
 //   GEMINI_API_KEY  — ключ Gemini API (secret, необязательно: без него бот просто собирает вопросы)
 //   GEMINI_MODEL    — модель Gemini (необязательно, по умолчанию gemini-flash-latest; быстрее — gemini-flash-lite-latest)
 //   DAILY_LIMIT     — сколько вопросов в день можно одному человеку (необязательно, по умолчанию 5)
+//   WEB_SEARCH      — off, чтобы отключить поиск Google при ответах (необязательно, по умолчанию включён)
 // KV-хранилище: привязка с именем DB (Settings → Bindings → KV namespace).
 
 const SYSTEM_PROMPT = `Ты — помощник Telegram-канала PC_AFK про компьютеры, железо и гаджеты.
@@ -38,6 +39,7 @@ const ADMIN_HELP = `Команды автора:
 /list — последние вопросы
 /rubric — вопросы, отмеченные ⭐ для рубрики
 /stats — сколько всего вопросов
+/facts — твои актуальные заметки для ИИ (цены, советы, новинки). /facts текст — сохранить, /facts_clear — удалить
 
 Чтобы ответить человеку лично — ответь (Reply) на уведомление о его вопросе.`;
 
@@ -105,6 +107,26 @@ async function handleUpdate(update, env) {
   }
   if (isAdmin && text.startsWith("/list")) return listQuestions(env, chatId, false);
   if (isAdmin && text.startsWith("/rubric")) return listQuestions(env, chatId, true);
+  if (isAdmin && text.startsWith("/facts_clear")) {
+    await env.DB.delete("facts");
+    return send(env, chatId, "🗑 Заметки для ИИ удалены.");
+  }
+  if (isAdmin && text.startsWith("/facts")) {
+    const newFacts = text.replace(/^\/facts(@\w+)?/, "").trim();
+    if (!newFacts) {
+      const current = await env.DB.get("facts");
+      return send(
+        env,
+        chatId,
+        current
+          ? `📝 Текущие заметки для ИИ:\n\n${current}\n\nЧтобы заменить — отправь /facts и новый текст. Удалить — /facts_clear`
+          : "Заметок пока нет. Отправь /facts и текст, например:\n/facts Сейчас лучшая карта за свои деньги — RTX 5060 Ti 16GB. 4060 Ti уже не советуем."
+      );
+    }
+    if (newFacts.length > 3000) return send(env, chatId, "Слишком длинно — уложись в 3000 символов.");
+    await env.DB.put("facts", newFacts);
+    return send(env, chatId, "✅ Заметки сохранены. ИИ будет учитывать их в каждом ответе.");
+  }
   if (isAdmin && text.startsWith("/stats")) {
     const total = parseInt((await env.DB.get("total")) || "0", 10);
     return send(env, chatId, `Всего вопросов: ${total}`);
@@ -253,23 +275,61 @@ async function listQuestions(env, chatId, onlyStarred) {
 
 async function askGemini(question, env) {
   if (!env.GEMINI_API_KEY) return null;
+
+  const today = new Date().toLocaleDateString("ru-RU", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "Europe/Moscow",
+  });
+  let system =
+    SYSTEM_PROMPT +
+    `\nСегодня ${today}. Твои собственные знания могут быть устаревшими. ` +
+    `Если вопрос про актуальные модели, цены, новинки или «что сейчас лучше» — опирайся на свежие результаты поиска, а не на память.`;
+  const facts = await env.DB.get("facts");
+  if (facts) system += `\n\nАктуальные заметки автора канала (они важнее твоих знаний и результатов поиска):\n${facts}`;
+
+  // Общий лимит ожидания — 22 секунды, иначе Cloudflare может оборвать обработку и бот промолчит
+  const deadline = Date.now() + 22000;
+  const useSearch = env.WEB_SEARCH !== "off";
+  try {
+    return await callGemini(question, system, useSearch, env, deadline);
+  } catch (e) {
+    // Если поиск недоступен (лимит, неподдерживаемая модель) — пробуем без него, пока есть время
+    if (useSearch && !e.timeout && deadline - Date.now() > 6000) {
+      console.log("search failed, retry without search:", e.message);
+      return callGemini(question, system, false, env, deadline);
+    }
+    throw e;
+  }
+}
+
+async function callGemini(question, system, useSearch, env, deadline) {
   const model = env.GEMINI_MODEL || "gemini-flash-latest";
-  // Ждём ИИ не дольше 20 секунд, иначе Cloudflare может оборвать обработку и бот промолчит
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20000);
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-    {
+  const timer = setTimeout(() => controller.abort(), Math.max(1000, deadline - Date.now()));
+  const body = {
+    systemInstruction: { parts: [{ text: system }] },
+    contents: [{ role: "user", parts: [{ text: question }] }],
+    generationConfig: { temperature: 0.6, maxOutputTokens: 2048 },
+  };
+  if (useSearch) body.tools = [{ google_search: {} }];
+
+  let res;
+  try {
+    res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: "POST",
       signal: controller.signal,
       headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-        contents: [{ role: "user", parts: [{ text: question }] }],
-        generationConfig: { temperature: 0.6, maxOutputTokens: 2048 },
-      }),
-    }
-  ).finally(() => clearTimeout(timer));
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    const err = new Error(`Gemini fetch failed: ${e.message}`);
+    err.timeout = controller.signal.aborted;
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
   const parts = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) || [];
