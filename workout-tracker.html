@@ -407,8 +407,18 @@ load();
 try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch(e) {}
 
 let view = 'main'; // main | edit | history | progress
+// Режим «внутри Scriptable»: виджет открывает трекер на весь экран (без панели Safari)
+const IN_APP = /[?&]app=scriptable/.test(location.search);
+let syncT = null;
+function bridgeSync(now){
+  // передаём данные скрипту Scriptable — он сохраняет их для виджета
+  if (!IN_APP) return;
+  clearTimeout(syncT);
+  syncT = setTimeout(() => { try { location.href = 'trackersync://save?d=' + encodeURIComponent(JSON.stringify(S)); } catch(e) {} }, now ? 0 : 1500);
+}
 let saveWarned = false;
 function save(){
+  bridgeSync();
   try { localStorage.setItem(KEY, JSON.stringify(S)); }
   catch(e) { if (!saveWarned) { saveWarned = true; toast('Не удалось сохранить — сделай резервную копию'); } }
 }
@@ -416,8 +426,9 @@ function save(){
 window.addEventListener('storage', ev => { if (ev.key === KEY) { load(); render(); } });
 
 function syncWidget(msg){
+  if (IN_APP) { bridgeSync(true); toast(msg || 'Виджет обновлён'); return; }
   // копируем данные и открываем скрипт «Трекер» в Scriptable — он сохранит их и вернёт в трекер
-  const go = () => { toast(msg || 'Обновляю виджет…'); setTimeout(() => { location.href = 'scriptable:///run/' + encodeURIComponent('Трекер'); }, 600); };
+  const go = () => { toast(msg || 'Обновляю виджет…'); setTimeout(() => { location.href = 'scriptable:///run/' + encodeURIComponent('Трекер') + '?sync=1'; }, 600); };
   try { navigator.clipboard.writeText(JSON.stringify(S)).then(go, () => toast('Не удалось обновить виджет')); } catch(err) { toast('Не удалось обновить виджет'); }
 }
 

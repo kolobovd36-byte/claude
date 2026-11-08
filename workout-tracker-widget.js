@@ -1,44 +1,80 @@
 // Виджет «Трекер тренировок» для Scriptable  (назови скрипт «Трекер»)
-// Экран блокировки: круглый / прямоугольный / строка над часами.
-// Домашний экран: маленький, средний, большой.
-//
-// Как обновлять данные: в трекере нажми «Обновить виджет» —
-// данные скопируются и откроется этот скрипт, он их сохранит и вернёт тебя в трекер.
+// Нажатие на виджет открывает трекер на весь экран прямо в Scriptable — без панели Safari.
+// Данные сохраняются автоматически и сразу попадают в виджет.
 
-// ⬇️ ссылка, по которой открываешь трекер
 const URL = "https://kolobovd36-byte.github.io/claude/workout-tracker.html";
+// "app"    — открывать трекер внутри Scriptable на весь экран (без поисковой строки)
+// "safari" — открывать в Safari, как раньше
+const MODE = "app";
 
 // Расписание: день недели → название дня в трекере (0 = воскресенье). null = отдых
 const PLAN = { 1: "Anterior", 2: "Posterior", 3: "Bench Press", 4: "Anterior", 5: "Posterior", 6: "Bench Press", 0: null };
 
-const GREEN = new Color("#30d158"), RED = new Color("#ff6b6b"), GRAY = new Color("#8e8e93");
+const KEY = "workout-tracker-v2";
+const GREEN = new Color("#30d158"), GRAY = new Color("#8e8e93");
 const BG = new Color("#1c1c1e"), WHITE = Color.white();
 const fm = FileManager.local();
 const FILE = fm.joinPath(fm.documentsDirectory(), "workout-tracker-data.json");
+const APP_URL = URL + "?app=scriptable";
+const RUN_URL = "scriptable:///run/" + encodeURIComponent(Script.name()) + "?open=1";
 
 // ---------- данные ----------
 function loadData() {
   try { if (fm.fileExists(FILE)) return JSON.parse(fm.readString(FILE)); } catch (e) {}
   return null;
 }
-function tryImportFromClipboard() {
+function storeData(json) {
   try {
-    const raw = Pasteboard.paste();
-    if (!raw || raw.length > 5e6) return false;
-    const d = JSON.parse(raw);
+    const d = typeof json === "string" ? JSON.parse(json) : json;
     if (!d || !Array.isArray(d.days) || !Array.isArray(d.history)) return false;
     d.syncedAt = Date.now();
     fm.writeString(FILE, JSON.stringify(d));
     return true;
   } catch (e) { return false; }
 }
+function tryImportFromClipboard() {
+  try { const raw = Pasteboard.paste(); return raw && raw.length < 5e6 && storeData(raw); } catch (e) { return false; }
+}
 
+// ---------- трекер на весь экран ----------
+async function openTracker() {
+  const wv = new WebView();
+  // трекер присылает данные через адрес trackersync://save?d=...
+  wv.shouldAllowRequest = req => {
+    const u = req.url || "";
+    if (u.startsWith("trackersync://")) {
+      const i = u.indexOf("d=");
+      if (i >= 0) { try { storeData(decodeURIComponent(u.slice(i + 2))); } catch (e) {} }
+      return false;
+    }
+    return true;
+  };
+  await wv.loadURL(APP_URL);
+  // если внутри Scriptable данных ещё нет, а у виджета есть копия — переносим её
+  const saved = loadData();
+  if (saved) {
+    delete saved.syncedAt;
+    const restored = await wv.evaluateJavaScript(
+      `(function(){ try { if (!localStorage.getItem(${JSON.stringify(KEY)})) { localStorage.setItem(${JSON.stringify(KEY)}, ${JSON.stringify(JSON.stringify(saved))}); location.reload(); return true; } } catch(e) {} return false; })()`
+    );
+    if (restored) await wv.waitForLoad();
+  }
+  await wv.present(true);
+  // после закрытия — забираем актуальные данные ещё раз
+  try {
+    const raw = await wv.evaluateJavaScript(`localStorage.getItem(${JSON.stringify(KEY)})`);
+    if (raw) storeData(raw);
+  } catch (e) {}
+}
+
+// ---------- расчёты для виджета ----------
 const e1rm = it => {
   const r = it.uni ? (Number(it.reps) + Number(it.repsL)) / 2 : Number(it.reps);
   return it.weight > 0 ? it.weight * (1 + r / 30) : r;
 };
 const fmt = n => String(Math.round(n * 10) / 10).replace(".", ",");
 const DAY = 864e5;
+function startOfDay(ts) { const d = new Date(ts); d.setHours(0, 0, 0, 0); return d.getTime(); }
 function ago(ts) {
   const d = Math.floor((startOfDay(Date.now()) - startOfDay(ts)) / DAY);
   if (d <= 0) return "сегодня";
@@ -47,11 +83,10 @@ function ago(ts) {
   const w = (m10 === 1 && m100 !== 11) ? "день" : (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) ? "дня" : "дней";
   return d + " " + w + " назад";
 }
-function startOfDay(ts) { const d = new Date(ts); d.setHours(0, 0, 0, 0); return d.getTime(); }
 
 function stats(data) {
   const todayName = PLAN[new Date().getDay()];
-  const s = { todayName, today: null, sets: 0, last: null, week: 0, up: 0, flat: 0, down: 0, total: 0, benchNext: null, benchBest: 0, benchDone: 0, benchAll: 0, synced: null };
+  const s = { todayName, today: null, sets: 0, last: null, week: 0, up: 0, total: 0, benchNext: null, benchBest: 0, benchDone: 0, benchAll: 0, synced: null };
   if (!data) return s;
   s.synced = data.syncedAt || null;
   const days = data.days || [], hist = (data.history || []).slice().sort((a, b) => a.date - b.date);
@@ -59,15 +94,13 @@ function stats(data) {
   if (day && day.items) { s.today = day; s.sets = day.items.reduce((a, e) => a + (parseInt(e.sets) || 0), 0); }
   s.last = hist[hist.length - 1] || null;
   s.week = hist.filter(h => h.date > Date.now() - 7 * DAY).length;
-  // прогресс: последняя vs предыдущая по каждому упражнению
   const m = {};
   hist.forEach(h => (h.items || []).forEach(it => { (m[it.sci] = m[it.sci] || []).push(e1rm(it)); }));
   Object.values(m).forEach(p => {
     if (p.length < 2) return;
     const a = p[p.length - 2], b = p[p.length - 1], d = a ? (b - a) / a : 0;
-    s.total++; if (d > 0.005) s.up++; else if (d < -0.005) s.down++; else s.flat++;
+    s.total++; if (d > 0.005) s.up++;
   });
-  // жим
   const bench = days.find(d => d.kind === "bench");
   if (bench) {
     const all = (bench.weeks || []).flatMap(w => w.items || []);
@@ -81,24 +114,21 @@ const LBL = { light: "Лёгкая", heavy: "Тяжёлая", test: "Прохо�
 const benchTxt = n => n ? `${LBL[n.t] || ""} ${fmt(n.w)} кг${n.sc ? " · " + n.sc : ""}${n.t === "test" && n.note ? " · " + n.note : ""}` : "программа пройдена";
 
 // ---------- отрисовка ----------
-function sym(name, size, color) {
-  const s = SFSymbol.named(name); s.applyFont(Font.systemFont(size));
-  return { img: s.image, color };
-}
 function addSym(stack, name, size, color = WHITE) {
-  const i = stack.addImage(sym(name, size).img); i.imageSize = new Size(size, size); i.tintColor = color; return i;
+  const sf = SFSymbol.named(name); sf.applyFont(Font.systemFont(size));
+  const i = stack.addImage(sf.image); i.imageSize = new Size(size, size); i.tintColor = color; return i;
 }
 function text(stack, t, size, color = WHITE, bold = false) {
   const x = stack.addText(t); x.font = bold ? Font.boldSystemFont(size) : Font.systemFont(size); x.textColor = color; x.lineLimit = 1; x.minimumScaleFactor = 0.7; return x;
 }
 function ring(up, total, size = 58) {
   const c = new DrawContext(); c.size = new Size(size, size); c.opaque = false; c.respectScreenScale = true;
-  const r = size / 2 - 5, cx = size / 2, lw = 7;
+  const r = size / 2 - 5, cx = size / 2;
   const arc = (from, to, color) => {
     const p = new Path(), pts = [];
     for (let a = from; a <= to; a += 0.03) pts.push(new Point(cx + r * Math.cos(a), cx + r * Math.sin(a)));
     pts.push(new Point(cx + r * Math.cos(to), cx + r * Math.sin(to)));
-    p.addLines(pts); c.addPath(p); c.setStrokeColor(color); c.setLineWidth(lw); c.strokePath();
+    p.addLines(pts); c.addPath(p); c.setStrokeColor(color); c.setLineWidth(7); c.strokePath();
   };
   const start = -Math.PI / 2;
   arc(start, start + 2 * Math.PI, new Color("#333338"));
@@ -110,13 +140,12 @@ function ring(up, total, size = 58) {
 
 function build(family, s) {
   const w = new ListWidget();
-  w.url = URL;
-  w.refreshAfterDate = new Date(Date.now() + 3600e3);
+  w.url = MODE === "app" ? RUN_URL : URL;
+  w.refreshAfterDate = new Date(Date.now() + 15 * 60e3);
   const dayLine = s.todayName ? s.todayName : "День отдыха";
   const setsLine = s.today ? `${s.today.items.length} упр. · ${s.sets} подх.` : (s.todayName === "Bench Press" ? benchTxt(s.benchNext) : "восстановление");
   const lastLine = s.last ? `${s.last.day} · ${ago(s.last.date)}` : "ещё нет тренировок";
 
-  // ----- экран блокировки -----
   if (family === "accessoryCircular") {
     w.addAccessoryWidgetBackground = true;
     if (s.total) {
@@ -140,10 +169,8 @@ function build(family, s) {
     return w;
   }
 
-  // ----- домашний экран -----
   w.backgroundColor = BG;
   w.setPadding(14, 15, 14, 15);
-
   const head = w.addStack(); head.centerAlignContent(); head.spacing = 6;
   addSym(head, "dumbbell.fill", 15);
   text(head, "Трекер", 13, GRAY, true);
@@ -160,7 +187,6 @@ function build(family, s) {
     return w;
   }
 
-  // medium / large: слева сегодня, справа кольцо прогресса
   const row = w.addStack(); row.centerAlignContent();
   const left = row.addStack(); left.layoutVertically();
   text(left, "Сегодня", 11, GRAY);
@@ -176,7 +202,6 @@ function build(family, s) {
   const box = (title, value, color = WHITE) => {
     const b = bottom.addStack(); b.layoutVertically(); b.backgroundColor = new Color("#2a2a2e"); b.cornerRadius = 10; b.setPadding(6, 8, 6, 8);
     text(b, title, 9, GRAY); text(b, value, 12, color, true);
-    return b;
   };
   box("Последняя", lastLine);
   box("Жим лёжа", benchTxt(s.benchNext), s.benchNext && s.benchNext.t === "test" ? GREEN : WHITE);
@@ -196,19 +221,22 @@ function build(family, s) {
       text(w, `Выполнено ${s.benchDone} из ${s.benchAll} · лучшая проходка ${s.benchBest ? fmt(s.benchBest) + " кг" : "—"}`, 12, WHITE);
     }
     w.addSpacer();
-    text(w, s.synced ? `данные обновлены ${ago(s.synced)}` : "нажми «Обновить виджет» в трекере", 9, GRAY);
+    text(w, s.synced ? `данные обновлены ${ago(s.synced)}` : "открой трекер через виджет", 9, GRAY);
   }
   return w;
 }
 
 // ---------- запуск ----------
+const q = (args && args.queryParameters) || {};
 if (config.runsInWidget) {
   Script.setWidget(build(config.widgetFamily || "small", stats(loadData())));
-} else if (tryImportFromClipboard()) {
-  // пришли из трекера по кнопке «Обновить виджет»
-  Safari.open(URL);
+} else if (q.open) {
+  await openTracker();                       // нажали на виджет
+} else if (q.sync) {
+  // пришли из Safari-версии трекера по кнопке «Обновить виджет»
+  tryImportFromClipboard();
+  if (MODE === "app") await openTracker(); else Safari.open(URL);
 } else {
-  // запуск вручную — показать превью
-  await build("medium", stats(loadData())).presentMedium();
+  await openTracker();                       // запуск скрипта вручную
 }
 Script.complete();
