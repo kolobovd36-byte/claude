@@ -331,6 +331,7 @@ function progressView(){
       </div>`;
     }).join('');
   }
+  h += `<button class="ghost" style="margin-top:6px;color:#30d158;border-color:#30d158;border-style:solid" data-a="widget">Обновить виджет на экране</button>`;
   return h;
 }
 
@@ -418,6 +419,7 @@ function dataSection(){
     <div class="card">
       <div class="ru">Резервная копия: всё хранится только на этом телефоне. Время от времени копируй её, например в «Заметки» или в Избранное Telegram.</div>
       <button class="ghost" style="margin:12px 0 0;color:var(--text);border-style:solid" data-a="export">Скопировать резервную копию</button>
+      <button class="ghost" style="margin:10px 0 0;color:#30d158;border-color:#30d158;border-style:solid" data-a="widget">Обновить виджет</button>
       <textarea class="field" id="imp" placeholder="Вставь сюда копию, чтобы восстановить" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
       <button class="ghost" style="margin:10px 0 0" data-a="import">Восстановить из копии</button>
     </div>
@@ -578,6 +580,12 @@ document.addEventListener('click', ev => {
     const done = () => toast('Копия в буфере обмена');
     const fallback = () => { const t = document.getElementById('imp'); t.value = txt; t.focus(); t.select(); toast('Выдели и скопируй текст'); };
     try { navigator.clipboard.writeText(txt).then(done, fallback); } catch(err) { fallback(); }
+    return;
+  }
+  if (a === 'widget') {
+    // копируем данные и открываем скрипт «Трекер» в Scriptable — он сохранит их для виджета
+    const go = () => { toast('Данные скопированы'); setTimeout(() => { location.href = 'scriptable:///run/' + encodeURIComponent('Трекер'); }, 300); };
+    try { navigator.clipboard.writeText(JSON.stringify(S)).then(go, () => toast('Не удалось скопировать')); } catch(err) { toast('Не удалось скопировать'); }
     return;
   }
   if (a === 'import') {
