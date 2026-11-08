@@ -240,6 +240,14 @@ function toast(t){
   clearTimeout(toast.t); toast.t = setTimeout(()=>el.classList.remove('show'), 1600);
 }
 
+// двойное нажатие вместо confirm()
+function sure(b){
+  if (b.dataset.armed) return true;
+  b.dataset.armed = '1'; const t = b.textContent; b.textContent = 'Нажми ещё раз';
+  setTimeout(()=>{ delete b.dataset.armed; b.textContent = t; }, 2500);
+  return false;
+}
+
 const find = id => day().items.find(e => e.id === id);
 
 // ===== События =====
@@ -247,6 +255,7 @@ document.addEventListener('click', ev => {
   const b = ev.target.closest('[data-a]'); if (!b) return;
   const a = b.dataset.a, e = b.dataset.id ? find(b.dataset.id) : null;
 
+  if (['delex','delday','delhist','reset'].includes(a) && !sure(b)) return;
   if (a === 'view') { view = view === b.dataset.v ? 'main' : b.dataset.v; render(); return; }
   if (a === 'day') { S.cur = +b.dataset.i; save(); render(); scrollTo(0,0); return; }
 
@@ -267,11 +276,11 @@ document.addEventListener('click', ev => {
     toast('Тренировка сохранена');
   }
   if (a === 'addex') day().items.push(ex('New Exercise','Новое упражнение','machine',20));
-  if (a === 'delex' && confirm('Удалить упражнение?')) day().items = day().items.filter(x => x.id !== e.id);
+  if (a === 'delex') day().items = day().items.filter(x => x.id !== e.id);
   if (a === 'addday') { S.days.push({ id: uid(), name: 'День ' + (S.days.length+1), items: [] }); S.cur = S.days.length-1; }
-  if (a === 'delday' && confirm('Удалить день «' + day().name + '»?')) { S.days.splice(S.cur,1); S.cur = 0; }
-  if (a === 'delhist' && confirm('Удалить запись?')) S.history.splice(+b.dataset.i, 1);
-  if (a === 'reset' && confirm('Сбросить все упражнения, веса и историю?')) { S = { days: DEFAULT_DAYS(), scales: DEFAULT_SCALES, history: [], cur: 0 }; view = 'main'; }
+  if (a === 'delday') { S.days.splice(S.cur,1); S.cur = 0; }
+  if (a === 'delhist') S.history.splice(+b.dataset.i, 1);
+  if (a === 'reset') { S = { days: DEFAULT_DAYS(), scales: DEFAULT_SCALES, history: [], cur: 0 }; view = 'main'; }
 
   save(); render();
 });
