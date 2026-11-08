@@ -15,6 +15,8 @@ const LOCAL_NAME = "schedule.json";
 const DAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 const DAY_RU = { mon: "Пн", tue: "Вт", wed: "Ср", thu: "Чт", fri: "Пт", sat: "Сб", sun: "Вс" };
 
+let FROM_CACHE = false; // true, если интернета не было и взята старая копия
+
 async function loadData() {
   const lfm = FileManager.local();
   const cache = lfm.joinPath(lfm.documentsDirectory(), "schedule-cache.json");
@@ -35,7 +37,7 @@ async function loadData() {
       return data;
     } catch (e) {
       // нет интернета — берём последнюю сохранённую копию
-      if (lfm.fileExists(cache)) return JSON.parse(lfm.readString(cache));
+      if (lfm.fileExists(cache)) { FROM_CACHE = true; return JSON.parse(lfm.readString(cache)); }
       throw e;
     }
   }
@@ -126,7 +128,9 @@ function buildDay(w, data, now, first) {
   const label = today ? "Сегодня" : dayLabel(day, now).replace(", ", "");
   const hs = w.addStack();
   hs.addSpacer();
-  const head = hs.addText(`${label} · ${DAY_RU[DAYS[day.getDay()]]}`.toUpperCase());
+  // В заголовке — время последнего обновления; «!» — нет сети, показана старая копия
+  const upd = (FROM_CACHE ? "! " : "↻ ") + fmt(now);
+  const head = hs.addText(`${label} · ${DAY_RU[DAYS[day.getDay()]]}`.toUpperCase() + "   " + upd);
   head.font = Font.semiboldSystemFont(10);
   head.textColor = gray;
   hs.addSpacer();
