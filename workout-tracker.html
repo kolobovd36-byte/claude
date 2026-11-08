@@ -226,7 +226,7 @@ const findB = id => allBench(day()).find(x => x.id === id);
 // ===== Прогресс =====
 // условный 1ПМ (Эпли): учитывает и вес, и повторы
 const e1rm = it => { const r = it.uni ? (it.reps + it.repsL)/2 : it.reps; return it.weight * (1 + r/30); };
-const C_UP = '#ffffff', C_FLAT = '#636366', C_DOWN = '#ff6b6b';
+const C_UP = '#30d158', C_FLAT = '#636366', C_DOWN = '#ff6b6b';
 
 function series(){
   const m = new Map();
@@ -252,7 +252,7 @@ function donut(parts){
     off += len; return a;
   }).join('') : `<circle r="${R}" cx="70" cy="70" fill="none" stroke="#333338" stroke-width="14"/>`;
   return `<svg viewBox="0 0 140 140" width="140" height="140">${arcs}
-    <text x="70" y="68" text-anchor="middle" fill="#fff" font-size="30" font-weight="700">${parts[0].v}</text>
+    <text x="70" y="68" text-anchor="middle" fill="${parts[0].v?C_UP:'#fff'}" font-size="30" font-weight="700">${parts[0].v}</text>
     <text x="70" y="88" text-anchor="middle" fill="#8e8e93" font-size="11">из ${total} растут</text></svg>`;
 }
 
@@ -294,7 +294,7 @@ function progressView(){
         <div style="text-align:right"><div class="big">${done}<small> / ${all.length}</small></div><div class="ru">тренировок программы</div></div>
       </div>
       <div class="bars">${tests.map(t=>`<div class="bcol"><div class="bval">${fmt(t.w)}</div>
-        <div class="btrack"><div style="height:${t.w/mx*100}%;background:${t.done?C_UP:'#3a3a3f'}"></div></div>
+        <div class="btrack"><div style="height:${t.w/mx*100}%;background:${t.done?'#fff':'#3a3a3f'}"></div></div>
         <div class="bdate">${esc(t.note||'—')}</div></div>`).join('')}</div>
       <div class="ru" style="margin-top:8px">Белые — пройдены, серые — ещё впереди</div>
     </div>`;
@@ -316,7 +316,7 @@ function progressView(){
         <div class="cmp">
           <div><span>Было</span><b>${fmt(x.first.weight)}</b> × ${x.first.reps}</div>
           <div><span>Прошлая</span><b>${x.prev?fmt(x.prev.weight):'—'}</b>${x.prev?' × '+x.prev.reps:''}</div>
-          <div><span>Сейчас</span><b style="color:${x.st==='down'?C_DOWN:'#fff'}">${fmt(x.last.weight)}</b> × ${x.last.reps}</div>
+          <div><span>Сейчас</span><b style="color:${x.st==='down'?C_DOWN:x.st==='up'?C_UP:'#fff'}">${fmt(x.last.weight)}</b> × ${x.last.reps}</div>
         </div>
         ${spark(x.pts, c)}
         <div class="ru" style="margin-top:6px">${x.pts.length} трен. · ${x.prev ? (dw ? `вес ${dw>0?'+':''}${fmt(dw)} кг к прошлой · ` : '') : ''}сила с начала ${x.gain>=0?'+':''}${fmt(x.gain)}%</div>
