@@ -69,6 +69,19 @@
   .hline span:last-child{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;margin-left:10px}
   .empty{color:var(--muted);text-align:center;margin-top:60px}
 
+  .bar{height:4px;border-radius:2px;background:var(--btn);margin:14px 0 8px;overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--text);border-radius:2px}
+  .bline{display:flex;align-items:center;width:100%;text-align:left;padding:12px 0;border-top:1px solid var(--line);gap:10px}
+  .card .hday + .bline{border-top:0}
+  .bl{flex:1;font-size:15px;color:var(--muted)}
+  .bl small{display:block;font-size:12px;margin-top:2px;color:#6c6c70}
+  .bw{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .bline.test .bl{color:var(--text);font-weight:600}
+  .bline.next .bl{color:var(--text)}
+  .bline.next .chk{border-color:var(--text)}
+  .chk{width:28px;height:28px;flex:none;border-radius:50%;border:1.5px solid #4a4a50;display:grid;place-items:center}
+  .chk.on{background:var(--text);border-color:var(--text);color:var(--bg)}
+  .chk svg{width:16px;height:16px}
   .toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 14px);transform:translate(-50%,-80px);
     background:var(--text);color:var(--bg);padding:10px 18px;border-radius:20px;font-size:14px;font-weight:600;
     transition:transform .25s;white-space:nowrap}
@@ -123,16 +136,81 @@ const DEFAULT_DAYS = () => [
     ex('Cable Triceps Pushdown (cuffed)', 'Разгибания на трицепс одной рукой, манжета', 33.8, CABLE, [10,10], 1),
     ex('Back Extension', 'Гиперэкстензия', 55, around(55,2.5), 8, 1),
   ]},
-  { id: uid(), name:'Bench Press', items:[
-    ex('Barbell Bench Press', 'Жим штанги лёжа', 60, around(60,2.5,40), 6, 3),
-  ]},
+  BENCH_DAY(),
 ];
+
+// ===== Жимовая программа 2 =====
+const L = (w, sc, done=false) => ({ id: uid(), t:'light', w, sc, done });
+const H = (w, sc, done=false) => ({ id: uid(), t:'heavy', w, sc, done });
+const T = (w, note='', done=false) => ({ id: uid(), t:'test', w, sc:'', note, done });
+const BENCH_DAY = () => ({ id: uid(), name:'Bench Press', kind:'bench',
+  sci:'Barbell Bench Press', ru:'Жимовая программа 2 · старт 75×10, шаг +5 кг',
+  weeks: [
+    { n:'1 неделя',  items:[ L(75,'3×5',1), H(75,'3×6',1) ] },
+    { n:'2 неделя',  items:[ L(80,'3×4',1), H(80,'3×5',1) ] },
+    { n:'3 неделя',  items:[ L(85,'3×3',1), H(85,'3×4',1), T(100,'в сб') ] },
+    { n:'4 неделя',  items:[ L(80,'3×5',1), H(80,'3×6',1) ] },
+    { n:'5 неделя',  items:[ L(85,'3×4',1), H(85,'3×5',1), T(100,'29.10.2026') ] },
+    { n:'8 неделя',  items:[ L(85,'3×4',1), H(85,'3×5',1) ] },
+    { n:'7 неделя',  items:[ L(90,'3×4'),   H(90,'3×5'),   T(110,'15.06.2026') ] },
+    { n:'10 неделя', items:[ L(90,'2 · 4 · 3'), H(90,'3×5') ] },
+    { n:'11 неделя', items:[ L(95,'3×4'),   H(95,'3×5') ] },
+    { n:'12 неделя', items:[ L(90,'3×4'),   H(90,'3×5'),   T(115,'06.07.2026') ] },
+  ]});
+const TLBL = { light:'Лёгкая', heavy:'Тяжёлая', test:'Проходка' };
+const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+const allBench = d => d.weeks.flatMap(w => w.items);
+
+function benchView(d){
+  const all = allBench(d), done = all.filter(x=>x.done).length;
+  const next = all.find(x => !x.done);
+  let h = `<div class="card"><div class="sci">${esc(d.sci)}</div><div class="ru">${esc(d.ru)}</div>
+    <div class="bar"><i style="width:${all.length? done/all.length*100 : 0}%"></i></div>
+    <div class="ru">Выполнено ${done} из ${all.length}${next ? ` · дальше: ${TLBL[next.t].toLowerCase()} ${fmt(next.w)} кг${next.sc?' '+esc(next.sc):''}` : ' · программа пройдена'}</div></div>`;
+  h += d.weeks.map(w => `<div class="card">
+    <div class="hday">${esc(w.n)}</div>
+    ${w.items.map(it => `<button class="bline ${it.t==='test'?'test':''} ${it===next?'next':''}" data-a="bdone" data-id="${it.id}">
+      <span class="bl">${TLBL[it.t]}${it.note?`<small>${esc(it.note)}</small>`:''}</span>
+      <span class="bw">${fmt(it.w)} кг${it.sc?` · ${esc(it.sc)}`:''}</span>
+      <span class="chk ${it.done?'on':''}">${it.done?CHECK:''}</span>
+    </button>`).join('')}
+  </div>`).join('');
+  return h;
+}
+
+function benchEdit(d){
+  let h = `<div class="card"><div class="ru">Название вкладки</div>
+    <input class="field big" value="${esc(d.name)}" data-f="dayname">
+    <input class="field" value="${esc(d.sci)}" data-f="bsci" placeholder="Научное название">
+    <input class="field" value="${esc(d.ru)}" data-f="bru" placeholder="Описание"></div>`;
+  h += d.weeks.map((w,wi) => `<div class="card">
+    <input class="field big" value="${esc(w.n)}" data-f="bweek" data-i="${wi}">
+    ${w.items.map(it => `<div class="ru" style="margin-top:12px">${TLBL[it.t]}</div>
+      <div style="display:flex;gap:8px">
+        <input class="field" style="width:34%" inputmode="decimal" value="${fmt(it.w)}" data-f="bw" data-id="${it.id}" placeholder="кг">
+        <input class="field" value="${esc(it.t==='test'?it.note:it.sc)}" data-f="${it.t==='test'?'bnote':'bsc'}" data-id="${it.id}" placeholder="${it.t==='test'?'дата':'3×5'}">
+      </div>`).join('')}
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      ${['light','heavy','test'].map(t=>`<button class="tab" data-a="badd" data-t="${t}" data-i="${wi}">+ ${TLBL[t]}</button>`).join('')}
+      <button class="tab" data-a="bpop" data-i="${wi}">− последняя</button>
+    </div>
+    <button class="del" data-a="bdelweek" data-i="${wi}">Удалить неделю</button>
+  </div>`).join('');
+  h += `<button class="ghost" data-a="baddweek">+ Неделя</button>`;
+  h += `<button class="ghost" data-a="resetbench" style="color:#ff6b6b">Вернуть исходную жимовую программу</button>`;
+  return h;
+}
+const findB = id => allBench(day()).find(x => x.id === id);
 
 // ===== Хранилище =====
 const KEY = 'workout-tracker-v2';
 let S;
 try { S = JSON.parse(localStorage.getItem(KEY)); } catch(e) {}
 if (!S || !S.days) S = { days: DEFAULT_DAYS(), history: [], cur: 0 };
+if (!S.days.some(d => d.kind === 'bench')) {
+  const i = S.days.findIndex(d => d.name === 'Bench Press');
+  if (i >= 0) S.days[i] = BENCH_DAY(); else S.days.push(BENCH_DAY());
+}
 let view = 'main'; // main | edit | history
 function save(){ try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e) {} }
 
@@ -160,8 +238,9 @@ function render(){
   if (view !== 'history') {
     h += `<div class="tabs">${S.days.map((d,i)=>`<button class="tab ${i===S.cur?'on':''}" data-a="day" data-i="${i}">${esc(d.name)}</button>`).join('')}</div>`;
   }
-  if (view === 'main') h += mainView();
-  if (view === 'edit') h += editView();
+  const isB = view !== 'history' && day().kind === 'bench';
+  if (view === 'main') h += isB ? benchView(day()) : mainView();
+  if (view === 'edit') h += isB ? benchEdit(day()) + `<div class="sect">Данные</div><button class="ghost" data-a="reset" style="color:#ff6b6b">Сбросить всё</button>` : editView();
   if (view === 'history') h += historyView();
   app.innerHTML = h;
 }
@@ -244,8 +323,8 @@ function sure(b){
   return false;
 }
 
-const find = id => day().items.find(e => e.id === id);
-const DANGER = ['delex','delday','delhist','reset'];
+const find = id => (day().items || []).find(e => e.id === id);
+const DANGER = ['delex','delday','delhist','reset','bdelweek','resetbench'];
 
 // ===== События =====
 document.addEventListener('click', ev => {
@@ -277,6 +356,12 @@ document.addEventListener('click', ev => {
       items: d.items.map(({sci,ru,weight,reps,repsL,uni,sets}) => ({sci,ru,weight,reps,repsL,uni,sets: sets||'0'})) });
     toast('Тренировка сохранена');
   }
+  if (a === 'bdone') { const it = findB(b.dataset.id); it.done = !it.done; if (it.done) toast(TLBL[it.t] + ' ✓'); }
+  if (a === 'badd') { const c = {light:L,heavy:H,test:T}[b.dataset.t]; day().weeks[+b.dataset.i].items.push(b.dataset.t==='test' ? c(100,'') : c(80,'3×5')); }
+  if (a === 'bpop') day().weeks[+b.dataset.i].items.pop();
+  if (a === 'bdelweek') day().weeks.splice(+b.dataset.i, 1);
+  if (a === 'baddweek') { const d = day(); d.weeks.push({ n: (d.weeks.length+1) + ' неделя', items:[ L(80,'3×4'), H(80,'3×5') ] }); }
+  if (a === 'resetbench') S.days[S.cur] = BENCH_DAY();
   if (a === 'addex') day().items.push(ex('New Exercise','Новое упражнение',20,around(20,2.5),8,1));
   if (a === 'delex') day().items = day().items.filter(x => x.id !== e.id);
   if (a === 'addday') { S.days.push({ id: uid(), name: 'День ' + (S.days.length+1), items: [] }); S.cur = S.days.length-1; }
@@ -291,6 +376,12 @@ document.addEventListener('input', ev => {
   const t = ev.target, f = t.dataset.f; if (!f) return;
   if (f === 'sets') { t.value = t.value.replace(/\D/g,''); find(t.dataset.id).sets = t.value; }
   if (f === 'sci' || f === 'ru') find(t.dataset.id)[f] = t.value;
+  if (f === 'bsci') day().sci = t.value;
+  if (f === 'bru') day().ru = t.value;
+  if (f === 'bweek') day().weeks[+t.dataset.i].n = t.value;
+  if (f === 'bsc') findB(t.dataset.id).sc = t.value;
+  if (f === 'bnote') findB(t.dataset.id).note = t.value;
+  if (f === 'bw') { const v = parseFloat(t.value.replace(',','.')); if (!isNaN(v)) findB(t.dataset.id).w = v; }
   if (f === 'dayname') { day().name = t.value; document.querySelector('.tab.on').textContent = t.value; }
   save();
 });
