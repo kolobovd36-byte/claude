@@ -2,8 +2,8 @@ from playwright.sync_api import sync_playwright
 import base64
 def img(n): return 'data:image/png;base64,'+base64.b64encode(open(f'/home/claude/shots/{n}.png','rb').read()).decode()
 
-def phone(n, scale=1.0, cls=''):
-    return f'''<div class="phone {cls}" style="--s:{scale}"><div class="scr">
+def phone(n, scale=1.0, cls='', full=False):
+    return f'''<div class="phone {cls} {'full' if full else ''}" style="--s:{scale}"><div class="scr">
       <div class="sb"><span>9:41</span><div class="isl"></div><span class="ic">
         <svg width="18" height="12" viewBox="0 0 18 12"><rect x="0" y="8" width="3" height="4" rx="1" fill="#fff"/><rect x="5" y="5.5" width="3" height="6.5" rx="1" fill="#fff"/><rect x="10" y="3" width="3" height="9" rx="1" fill="#fff"/><rect x="15" y="0" width="3" height="12" rx="1" fill="#fff"/></svg>
         <svg width="27" height="13" viewBox="0 0 27 13"><rect x=".5" y=".5" width="23" height="12" rx="3.5" fill="none" stroke="#fff" stroke-opacity=".45"/><rect x="2.5" y="2.5" width="16" height="8" rx="2" fill="#fff"/><path d="M25 4.5v4c.8-.3 1.3-1.1 1.3-2s-.5-1.7-1.3-2z" fill="#fff" fill-opacity=".45"/></svg>
@@ -31,6 +31,7 @@ p{font-size:28px;line-height:1.45;color:#9a9aa0;margin-top:30px;max-width:640px}
 ul{list-style:none;padding:0;margin-top:40px;display:grid;gap:18px}
 li{font-size:24px;color:#d8d8dc;display:flex;gap:14px;align-items:center}
 li:before{content:"";width:8px;height:8px;border-radius:50%;background:#30d158;flex:none}
+.full .sb{background:transparent}.full .scr img{top:0}
 .pg{position:absolute;bottom:56px;left:150px;font-size:18px;color:#5a5a60;letter-spacing:1px}
 '''
 def slide(body, num=None):
@@ -58,6 +59,10 @@ slides = {
      ['Зелёный — растёт','Серый — на месте','Красный — просел'],'s_progress2',4),
  '05_bench': single('Жимовая программа','Неделя<br>за неделей','Лёгкие и тяжёлые тренировки, проходки с датами и отметки о выполнении одним тапом.',
      ['Подсветка следующей тренировки','Шкала прохождения программы','Редактирование недель и весов'],'s_bench',5),
+ '07_widget': slide(f'''<div class="row"><div class="text"><div class="kick">Виджет</div><h1>В одно касание<br>с экрана блокировки</h1>
+     <p>Виджет для Scriptable показывает, какая сегодня тренировка, и открывает трекер по нажатию.</p>
+     <ul><li>Круглый, прямоугольный и строка над часами</li><li>Плитка на домашнем экране</li><li>Своя иконка приложения</li></ul></div>
+     <div style="display:flex;gap:40px">{phone('s_lock',1,full=True)}{phone('s_home',1,full=True)}</div></div>''',7),
  '06_history': slide(f'''<div class="row"><div class="text"><div class="kick">История и настройка</div><h1>Подстраивается<br>под меня</h1>
      <p>Все тренировки сохраняются в истории, а упражнения, дни и веса тренажёров легко поменять.</p></div>
      <div style="display:flex;gap:40px">{phone('s_history',1)}{phone('s_edit',1)}</div></div>''',6),
