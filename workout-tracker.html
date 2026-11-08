@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Трекер">
+<meta name="theme-color" content="#1c1c1e">
+<title>Трекер</title>
+<style>
+  :root{
+    --bg:#1c1c1e; --card:#26262a; --line:#333338; --muted:#8e8e93; --text:#fff; --btn:#303035;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;
+    -webkit-font-smoothing:antialiased;-webkit-user-select:none;user-select:none}
+  body{padding:calc(env(safe-area-inset-top) + 12px) 16px calc(env(safe-area-inset-bottom) + 100px)}
+  button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+  input,select{font:inherit;color:var(--text);-webkit-user-select:text;user-select:text}
+
+  header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  h1{font-size:28px;font-weight:700;margin:0;letter-spacing:-.5px}
+  .icons{display:flex;gap:6px}
+  .icon{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;color:var(--muted)}
+  .icon.on{color:var(--text);background:var(--btn)}
+  .icon svg{width:21px;height:21px}
+
+  .tabs{display:flex;gap:8px;overflow-x:auto;margin:0 -16px 18px;padding:0 16px;scrollbar-width:none}
+  .tabs::-webkit-scrollbar{display:none}
+  .tab{flex:none;padding:8px 14px;border-radius:18px;font-size:14px;color:var(--muted);border:1px solid var(--line)}
+  .tab.on{color:var(--bg);background:var(--text);border-color:var(--text);font-weight:600}
+
+  .card{background:var(--card);border-radius:16px;padding:16px;margin-bottom:12px}
+  .sci{font-size:18px;font-weight:600;letter-spacing:-.2px;line-height:1.25}
+  .ru{font-size:13px;color:var(--muted);margin-top:3px}
+  .rows{margin-top:14px;display:grid;gap:10px}
+  .row{display:flex;align-items:center;justify-content:space-between}
+  .label{font-size:13px;color:var(--muted);width:76px}
+  .ctrl{display:flex;align-items:center;gap:6px}
+  .pm{width:40px;height:40px;border-radius:50%;background:var(--btn);display:grid;place-items:center}
+  .pm:active{background:#45454b}
+  .pm svg{width:18px;height:18px}
+  .val{min-width:76px;text-align:center;font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
+  .val small{font-size:12px;color:var(--muted);font-weight:400;margin-left:2px}
+  .sets{width:86px;height:40px;border-radius:12px;background:var(--btn);border:0;text-align:center;
+    font-size:20px;font-weight:600;outline:none}
+  .sets:focus{box-shadow:0 0 0 1.5px var(--text)}
+  .last{font-size:12px;color:var(--muted);margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+
+  .finish{position:fixed;left:16px;right:16px;bottom:calc(env(safe-area-inset-bottom) + 16px);
+    height:54px;border-radius:16px;background:var(--text);color:var(--bg);font-weight:600;font-size:17px}
+  .finish:active{opacity:.85}
+
+  /* edit */
+  .field{width:100%;background:var(--btn);border:0;border-radius:10px;padding:10px 12px;margin-top:8px;outline:none;font-size:15px}
+  .field.big{font-size:17px;font-weight:600}
+  .ghost{width:100%;padding:14px;border-radius:14px;border:1px dashed #4a4a50;color:var(--muted);margin-bottom:12px}
+  .del{color:#ff6b6b;font-size:14px;margin-top:10px}
+  .sect{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin:26px 0 10px}
+  .hint{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.4}
+
+  /* history */
+  .hday{font-size:13px;color:var(--muted);margin-bottom:8px}
+  .hline{display:flex;justify-content:space-between;font-size:14px;padding:6px 0;border-top:1px solid var(--line)}
+  .hline:first-of-type{border-top:0}
+  .hline span:last-child{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;margin-left:10px}
+  .empty{color:var(--muted);text-align:center;margin-top:60px}
+
+  .toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 14px);transform:translate(-50%,-80px);
+    background:var(--text);color:var(--bg);padding:10px 18px;border-radius:20px;font-size:14px;font-weight:600;
+    transition:transform .25s}
+  .toast.show{transform:translate(-50%,0)}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const PLUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
+const MINUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14"/></svg>';
+const I_EDIT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>';
+const I_HIST = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>';
+
+const range = (a,b,s) => { const r=[]; for(let x=a; x<=b+1e-9; x+=s) r.push(Math.round(x*10)/10); return r; };
+
+// ===== Готовые веса зала (меняются в режиме правки) =====
+const DEFAULT_SCALES = {
+  db:      { name:'Гантели',  list: range(2,40,2) },
+  machine: { name:'Тренажёр', list: range(5,120,5) },
+  cable:   { name:'Блок',     list: range(2.5,80,2.5) },
+  bb:      { name:'Штанга',   list: range(20,160,2.5) },
+};
+
+const ex = (sci, ru, scale, weight, reps=8, sets=3) => ({ id: uid(), sci, ru, scale, weight, reps, sets: String(sets) });
+function uid(){ return Math.random().toString(36).slice(2,9); }
+
+const DEFAULT_DAYS = () => [
+  { id: uid(), name:'Перед A', items:[
+    ex('Barbell Back Squat','Присед со штангой','bb',60),
+    ex('Barbell Bench Press','Жим штанги лёжа','bb',50),
+    ex('Seated Close-Grip Chest Press','Жим узким хватом сидя','machine',40),
+    ex('Leg Extension','Разгибание ног в тренажёре','machine',35),
+    ex('Seated Dumbbell Shoulder Press','Жим гантелей сидя','db',14),
+    ex('Cable Triceps Pushdown','Разгибание рук на блоке','cable',20,10),
+  ]},
+  { id: uid(), name:'Зад A', items:[
+    ex('Romanian Deadlift','Румынская тяга','bb',60),
+    ex('Lat Pulldown','Тяга верхнего блока','cable',45),
+    ex('Seated Cable Row','Тяга нижнего блока сидя','cable',40),
+    ex('Lying Leg Curl','Сгибание ног лёжа','machine',30),
+    ex('Dumbbell Biceps Curl','Подъём гантелей на бицепс','db',10,10),
+    ex('Standing Calf Raise','Подъём на носки стоя','machine',50,12),
+  ]},
+  { id: uid(), name:'Перед B', items:[
+    ex('Leg Press','Жим ногами','machine',100),
+    ex('Incline Dumbbell Press','Жим гантелей на наклонной','db',20),
+    ex('Bulgarian Split Squat','Болгарские выпады','db',12),
+    ex('Dumbbell Lateral Raise','Махи гантелями в стороны','db',8,12),
+    ex('Overhead Cable Triceps Extension','Французский жим на блоке','cable',15,10),
+  ]},
+  { id: uid(), name:'Зад B', items:[
+    ex('Barbell Bent-Over Row','Тяга штанги в наклоне','bb',50),
+    ex('Barbell Hip Thrust','Ягодичный мост со штангой','bb',60,10),
+    ex('Seated Leg Curl','Сгибание ног сидя','machine',30),
+    ex('Reverse Pec Deck Fly','Разведения на заднюю дельту','machine',25,12),
+    ex('Dumbbell Hammer Curl','Молотки','db',12,10),
+  ]},
+];
+
+// ===== Хранилище =====
+const KEY = 'workout-tracker-v1';
+let S;
+try { S = JSON.parse(localStorage.getItem(KEY)); } catch(e) {}
+if (!S || !S.days) S = { days: DEFAULT_DAYS(), scales: DEFAULT_SCALES, history: [], cur: 0 };
+let view = 'main'; // main | edit | history
+function save(){ try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e) {} }
+
+const fmt = n => (Math.round(n*10)/10).toString().replace('.', ',');
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const day = () => S.days[S.cur] || S.days[0];
+
+function lastFor(sci){
+  for (let i = S.history.length-1; i >= 0; i--) {
+    const it = S.history[i].items.find(x => x.sci === sci);
+    if (it) return { ...it, date: S.history[i].date };
+  }
+  return null;
+}
+
+// ===== Рендер =====
+function render(){
+  const app = document.getElementById('app');
+  const title = view === 'edit' ? 'Правка' : view === 'history' ? 'История' : 'Тренировка';
+  let h = `<header><h1>${title}</h1><div class="icons">
+    <button class="icon ${view==='history'?'on':''}" data-a="view" data-v="history">${I_HIST}</button>
+    <button class="icon ${view==='edit'?'on':''}" data-a="view" data-v="edit">${I_EDIT}</button>
+  </div></header>`;
+
+  if (view !== 'history') {
+    h += `<div class="tabs">${S.days.map((d,i)=>`<button class="tab ${i===S.cur?'on':''}" data-a="day" data-i="${i}">${esc(d.name)}</button>`).join('')}</div>`;
+  }
+
+  if (view === 'main') h += mainView();
+  if (view === 'edit') h += editView();
+  if (view === 'history') h += historyView();
+  app.innerHTML = h;
+}
+
+function mainView(){
+  const d = day();
+  if (!d.items.length) return `<div class="empty">Нет упражнений.<br>Добавь их в режиме правки.</div>`;
+  return d.items.map(e => {
+    const last = lastFor(e.sci);
+    return `<div class="card">
+      <div class="sci">${esc(e.sci)}</div>
+      <div class="ru">${esc(e.ru)}</div>
+      <div class="rows">
+        <div class="row"><span class="label">Вес</span><div class="ctrl">
+          <button class="pm" data-a="w" data-d="-1" data-id="${e.id}">${MINUS}</button>
+          <div class="val">${fmt(e.weight)}<small>кг</small></div>
+          <button class="pm" data-a="w" data-d="1" data-id="${e.id}">${PLUS}</button>
+        </div></div>
+        <div class="row"><span class="label">Повторы</span><div class="ctrl">
+          <button class="pm" data-a="r" data-d="-1" data-id="${e.id}">${MINUS}</button>
+          <div class="val">${e.reps}</div>
+          <button class="pm" data-a="r" data-d="1" data-id="${e.id}">${PLUS}</button>
+        </div></div>
+        <div class="row"><span class="label">Подходы</span>
+          <input class="sets" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" value="${esc(e.sets)}" data-id="${e.id}" data-f="sets">
+        </div>
+      </div>
+      ${last ? `<div class="last">Прошлый раз: ${fmt(last.weight)} кг × ${last.reps} × ${last.sets} · ${new Date(last.date).toLocaleDateString('ru-RU',{day:'numeric',month:'short'})}</div>` : ''}
+    </div>`;
+  }).join('') + `<button class="finish" data-a="finish">Завершить тренировку</button>`;
+}
+
+function editView(){
+  const d = day();
+  const opts = sel => Object.entries(S.scales).map(([k,v])=>`<option value="${k}" ${k===sel?'selected':''}>${esc(v.name)}</option>`).join('');
+  let h = `<div class="card"><div class="ru">Название дня</div>
+    <input class="field big" value="${esc(d.name)}" data-f="dayname"></div>`;
+  h += d.items.map(e => `<div class="card">
+    <input class="field big" value="${esc(e.sci)}" placeholder="Научное название" data-id="${e.id}" data-f="sci">
+    <input class="field" value="${esc(e.ru)}" placeholder="Русское название" data-id="${e.id}" data-f="ru">
+    <select class="field" data-id="${e.id}" data-f="scale">${opts(e.scale)}</select>
+    <button class="del" data-a="delex" data-id="${e.id}">Удалить упражнение</button>
+  </div>`).join('');
+  h += `<button class="ghost" data-a="addex">+ Упражнение</button>
+        <div style="display:flex;gap:10px"><button class="ghost" data-a="addday">+ День</button>
+        ${S.days.length>1?`<button class="ghost" data-a="delday" style="color:#ff6b6b">Удалить день</button>`:''}</div>`;
+
+  h += `<div class="sect">Веса моего зала</div>`;
+  h += Object.entries(S.scales).map(([k,v]) => `<div class="card">
+    <div class="sci" style="font-size:16px">${esc(v.name)}</div>
+    <input class="field" value="${v.list.map(fmt).join('; ')}" data-scale="${k}" data-f="scalelist" inputmode="decimal">
+  </div>`).join('');
+  h += `<div class="hint">Перечисли все веса, которые есть в зале, через точку с запятой — плюсики будут переключать именно их. Например: 2,5; 5; 7,5; 10</div>`;
+  h += `<div class="sect">Данные</div><button class="ghost" data-a="reset" style="color:#ff6b6b">Сбросить всё</button>`;
+  return h;
+}
+
+function historyView(){
+  if (!S.history.length) return `<div class="empty">Пока пусто.<br>Заверши первую тренировку.</div>`;
+  return S.history.slice().reverse().map((w, ri) => {
+    const idx = S.history.length - 1 - ri;
+    return `<div class="card">
+      <div class="hday">${new Date(w.date).toLocaleDateString('ru-RU',{weekday:'short',day:'numeric',month:'long'})} · ${esc(w.day)}</div>
+      ${w.items.map(i=>`<div class="hline"><span>${esc(i.sci)}</span><span>${fmt(i.weight)} × ${i.reps} × ${i.sets}</span></div>`).join('')}
+      <button class="del" data-a="delhist" data-i="${idx}">Удалить запись</button>
+    </div>`;
+  }).join('');
+}
+
+function toast(t){
+  const el = document.getElementById('toast'); el.textContent = t; el.classList.add('show');
+  clearTimeout(toast.t); toast.t = setTimeout(()=>el.classList.remove('show'), 1600);
+}
+
+const find = id => day().items.find(e => e.id === id);
+
+// ===== События =====
+document.addEventListener('click', ev => {
+  const b = ev.target.closest('[data-a]'); if (!b) return;
+  const a = b.dataset.a, e = b.dataset.id ? find(b.dataset.id) : null;
+
+  if (a === 'view') { view = view === b.dataset.v ? 'main' : b.dataset.v; render(); return; }
+  if (a === 'day') { S.cur = +b.dataset.i; save(); render(); scrollTo(0,0); return; }
+
+  if (a === 'w') {
+    const list = (S.scales[e.scale] || {list:[e.weight]}).list;
+    let i = list.findIndex(x => x >= e.weight - 1e-9);
+    if (i === -1) i = list.length - 1;
+    if (list[i] !== e.weight && +b.dataset.d < 0) i++; // если вес был не из списка
+    i = Math.max(0, Math.min(list.length-1, i + (+b.dataset.d)));
+    e.weight = list[i];
+  }
+  if (a === 'r') e.reps = Math.max(1, Math.min(99, e.reps + (+b.dataset.d)));
+
+  if (a === 'finish') {
+    const d = day();
+    S.history.push({ date: Date.now(), day: d.name,
+      items: d.items.map(({sci,ru,weight,reps,sets}) => ({sci,ru,weight,reps,sets: sets||'0'})) });
+    toast('Тренировка сохранена');
+  }
+  if (a === 'addex') day().items.push(ex('New Exercise','Новое упражнение','machine',20));
+  if (a === 'delex' && confirm('Удалить упражнение?')) day().items = day().items.filter(x => x.id !== e.id);
+  if (a === 'addday') { S.days.push({ id: uid(), name: 'День ' + (S.days.length+1), items: [] }); S.cur = S.days.length-1; }
+  if (a === 'delday' && confirm('Удалить день «' + day().name + '»?')) { S.days.splice(S.cur,1); S.cur = 0; }
+  if (a === 'delhist' && confirm('Удалить запись?')) S.history.splice(+b.dataset.i, 1);
+  if (a === 'reset' && confirm('Сбросить все упражнения, веса и историю?')) { S = { days: DEFAULT_DAYS(), scales: DEFAULT_SCALES, history: [], cur: 0 }; view = 'main'; }
+
+  save(); render();
+});
+
+document.addEventListener('input', ev => {
+  const t = ev.target, f = t.dataset.f; if (!f) return;
+  if (f === 'sets') { t.value = t.value.replace(/\D/g,''); find(t.dataset.id).sets = t.value; }
+  if (f === 'sci' || f === 'ru') find(t.dataset.id)[f] = t.value;
+  if (f === 'dayname') { day().name = t.value; document.querySelector('.tab.on').textContent = t.value; }
+  save();
+});
+
+document.addEventListener('change', ev => {
+  const t = ev.target, f = t.dataset.f; if (!f) return;
+  if (f === 'scale') {
+    const e = find(t.dataset.id); e.scale = t.value;
+    const list = S.scales[t.value].list;
+    e.weight = list.reduce((p,c) => Math.abs(c-e.weight) < Math.abs(p-e.weight) ? c : p, list[0]);
+  }
+  if (f === 'scalelist') {
+    const list = [...new Set(t.value.split(/[;\s]+/).map(x => parseFloat(x.replace(',','.'))).filter(x => !isNaN(x) && x >= 0))].sort((a,b)=>a-b);
+    if (list.length) { S.scales[t.dataset.scale].list = list; t.value = list.map(fmt).join('; '); toast('Веса обновлены'); }
+  }
+  save();
+});
+
+// Enter на клавиатуре закрывает её
+document.addEventListener('keydown', ev => { if (ev.key === 'Enter') ev.target.blur(); });
+
+render();
+</script>
+</body>
+</html>
