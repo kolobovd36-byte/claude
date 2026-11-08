@@ -264,36 +264,30 @@
   },
   "changes": [
     {
-      "week": "2026-11-06",
-      "day": "fri",
+      "week": "2026-11-09",
+      "day": "mon",
       "lesson": 1,
-      "subject": "История",
-      "room": "403",
-      "teacher": "Дарья Сергеевна"
-    },
-    {
-      "week": "2026-11-06",
-      "day": "fri",
-      "lesson": 4,
       "cancel": true
     },
     {
-      "week": "2026-11-06",
-      "day": "fri",
-      "lesson": 7,
-      "set": "en",
-      "group": "2",
-      "room": "416"
+      "week": "2026-11-09",
+      "day": "mon",
+      "lesson": 2,
+      "cancel": true
     },
     {
-      "week": "2026-11-06",
-      "day": "fri",
-      "lesson": 8,
-      "set": "project",
-      "group": "2",
-      "subject": "Инд. проект",
+      "week": "2026-11-09",
+      "day": "mon",
+      "lesson": 6,
+      "subject": "Физика",
       "room": "408",
       "teacher": "Нина Евгеньевна"
+    },
+    {
+      "week": "2026-11-09",
+      "day": "mon",
+      "lesson": 7,
+      "cancel": true
     }
   ]
 }
