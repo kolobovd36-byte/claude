@@ -27,6 +27,8 @@ function storeData(json) {
   try {
     const d = typeof json === "string" ? JSON.parse(json) : json;
     if (!d || !Array.isArray(d.days) || !Array.isArray(d.history)) return false;
+    const cur = loadData();
+    if (cur && (cur.savedAt || 0) > (d.savedAt || 0)) return false;   // в файле уже более свежие данные
     d.syncedAt = Date.now();
     fm.writeString(FILE, JSON.stringify(d));
     return true;
@@ -37,34 +39,38 @@ function tryImportFromClipboard() {
 }
 
 // ---------- трекер на весь экран ----------
+// Главная копия данных — файл в Scriptable. Пока трекер открыт, скрипт каждые 2 секунды
+// забирает данные и сохраняет их в файл; при открытии подставляет самую свежую версию.
+const sleep = ms => new Promise(r => Timer.schedule(ms, false, r));
+const readLS = wv => wv.evaluateJavaScript(`(function(){ try { return localStorage.getItem(${JSON.stringify(KEY)}) || ""; } catch(e) { return ""; } })()`);
+
 async function openTracker() {
   const wv = new WebView();
-  // трекер присылает данные через адрес trackersync://save?d=...
-  wv.shouldAllowRequest = req => {
-    const u = req.url || "";
-    if (u.startsWith("trackersync://")) {
-      const i = u.indexOf("d=");
-      if (i >= 0) { try { storeData(decodeURIComponent(u.slice(i + 2))); } catch (e) {} }
-      return false;
-    }
-    return true;
-  };
+  wv.shouldAllowRequest = req => !(req.url || "").startsWith("trackersync://");
   await wv.loadURL(APP_URL);
-  // если внутри Scriptable данных ещё нет, а у виджета есть копия — переносим её
-  const saved = loadData();
-  if (saved) {
-    delete saved.syncedAt;
-    const restored = await wv.evaluateJavaScript(
-      `(function(){ try { if (!localStorage.getItem(${JSON.stringify(KEY)})) { localStorage.setItem(${JSON.stringify(KEY)}, ${JSON.stringify(JSON.stringify(saved))}); location.reload(); return true; } } catch(e) {} return false; })()`
-    );
-    if (restored) await wv.waitForLoad();
+
+  // 1) подставляем данные из файла, если они новее того, что лежит в трекере
+  const file = loadData();
+  if (file) {
+    let lsTs = -1;
+    try { const raw = await readLS(wv); lsTs = raw ? (JSON.parse(raw).savedAt || 0) : -1; } catch (e) {}
+    if (lsTs < 0 || (file.savedAt || 0) > lsTs) {
+      const d = Object.assign({}, file); delete d.syncedAt;
+      await wv.evaluateJavaScript(`(function(){ try { localStorage.setItem(${JSON.stringify(KEY)}, ${JSON.stringify(JSON.stringify(d))}); } catch(e) {} location.reload(); })()`);
+      await sleep(300);
+      try { await wv.waitForLoad(); } catch (e) {}
+    }
   }
-  await wv.present(true);
-  // после закрытия — забираем актуальные данные ещё раз
-  try {
-    const raw = await wv.evaluateJavaScript(`localStorage.getItem(${JSON.stringify(KEY)})`);
-    if (raw) storeData(raw);
-  } catch (e) {}
+
+  // 2) показываем трекер и, пока он открыт, сохраняем изменения каждые 2 секунды
+  let closed = false, last = "";
+  const shown = wv.present(true).then(() => { closed = true; });
+  const pull = async () => {
+    try { const raw = await readLS(wv); if (raw && raw !== last) { if (storeData(raw)) last = raw; } } catch (e) {}
+  };
+  while (!closed) { await sleep(2000); await pull(); }
+  await shown;
+  await pull();   // и ещё раз после закрытия
 }
 
 // ---------- расчёты для виджета ----------
@@ -109,6 +115,15 @@ function stats(data) {
     s.benchBest = Math.max(0, ...all.filter(x => x.t === "test" && x.done).map(x => x.w));
   }
   return s;
+}
+const setsN = e => Math.max(1, Math.min(10, parseInt(e.sets) || 1));
+const one = (r, l, uni) => uni ? `${r}/${l}` : `${r}`;
+function planTxt(e) {
+  const n = setsN(e), ex = (e.extra || []).slice(0, n - 1);
+  const parts = [one(e.reps, e.repsL, e.uni), ...ex.map(x => one(x.r, x.l, e.uni))];
+  while (parts.length < n) parts.push(parts[parts.length - 1]);
+  const same = parts.every(p => p === parts[0]);
+  return same ? `${fmt(e.weight)} × ${parts[0]}${n > 1 ? " × " + n : ""}` : `${fmt(e.weight)} × ${parts.join(", ")}`;
 }
 const LBL = { light: "Лёгкая", heavy: "Тяжёлая", test: "Проходка" };
 const benchTxt = n => n ? `${LBL[n.t] || ""} ${fmt(n.w)} кг${n.sc ? " · " + n.sc : ""}${n.t === "test" && n.note ? " · " + n.note : ""}` : "программа пройдена";
@@ -211,11 +226,12 @@ function build(family, s) {
     text(w, s.today ? "План на сегодня" : "Жимовая программа", 11, GRAY);
     w.addSpacer(4);
     if (s.today) {
-      s.today.items.slice(0, 8).forEach(e => {
+      const fs = s.today.items.length > 8 ? 10.5 : 12;
+      s.today.items.slice(0, 11).forEach(e => {
         const r = w.addStack(); r.centerAlignContent();
-        text(r, e.sci, 12, WHITE); r.addSpacer();
-        text(r, `${fmt(e.weight)} × ${e.uni ? e.reps + "/" + e.repsL : e.reps}`, 12, GRAY);
-        w.addSpacer(3);
+        text(r, e.sci, fs, WHITE); r.addSpacer(6);
+        const t = text(r, planTxt(e), fs, GRAY); t.minimumScaleFactor = 0.6;
+        w.addSpacer(s.today.items.length > 8 ? 1 : 3);
       });
     } else {
       text(w, `Выполнено ${s.benchDone} из ${s.benchAll} · лучшая проходка ${s.benchBest ? fmt(s.benchBest) + " кг" : "—"}`, 12, WHITE);
