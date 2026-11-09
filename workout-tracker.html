@@ -51,6 +51,7 @@
   .sets{width:86px;height:40px;border-radius:12px;background:var(--btn);border:0;text-align:center;
     font-size:20px;font-weight:600;outline:none}
   .sets:focus{box-shadow:0 0 0 1.5px var(--text)}
+  .rr{display:grid;gap:10px}
   .last{font-size:12px;color:var(--muted);margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
 
   .finish{position:fixed;left:16px;right:16px;bottom:calc(env(safe-area-inset-bottom) + 16px);
@@ -137,10 +138,11 @@ function uid(){
 }
 
 // sci, ru, weight, list весов зала, reps (число или [пр, л]), sets
-const ex = (sci, ru, weight, list, reps=8, sets=1) => {
+const ex = (sci, ru, weight, list, reps=8, sets=1, extra=[]) => {
   const uni = Array.isArray(reps);
   return { id: uid(), sci, ru, weight, w: uniq([...list, weight]), uni,
-    reps: uni ? reps[0] : reps, repsL: uni ? reps[1] : reps, sets: String(sets) };
+    reps: uni ? reps[0] : reps, repsL: uni ? reps[1] : reps, sets: String(sets),
+    extra: extra.map(x => Array.isArray(x) ? { r: x[0], l: x[1] } : { r: x, l: x }) };
 };
 
 const CABLE = stack(2.25, 90);              // кроссовер: 13.5, 33.8 …
@@ -148,14 +150,14 @@ const FULLBODY_DAY = () => ({ id: uid(), name:'Fullbody', items:[
     ex('Cable Lateral Raise (cuffed)', 'Махи в стороны в кроссовере, манжета', 13.5, CABLE, [10,9], 1),
     ex('Barbell Bench Press', 'Жим штанги лёжа', 85, around(85,2.5,30), 5, 3),
     ex('Chest-Supported Smith Machine Row', 'Тяга в Смите с упором грудью', 100, around(100,2.5), 9, 1),
-    ex('Lat Pulldown', 'Вертикальная тяга', 107, around(107,4.5), 7, 2),
+    ex('Lat Pulldown', 'Вертикальная тяга', 107, around(107,4.5), 7, 2, [6]),
     ex('Reclined Biceps Curl', 'Сгибания на бицепс полулёжа', 68, around(68,2.5), 8, 1),
     ex('Dumbbell Hammer Curl', 'Молотки', 18, stack(2,50), [11,11], 1),
     ex('Cable Triceps Pushdown (cuffed)', 'Разгибания на трицепс одной рукой, манжета', 33.8, CABLE, [10,10], 1),
     ex('Unilateral Leg Extension', 'Разгибания ног по одной', 57.5, stack(5,120,7.5), [8,8], 1),
     ex('Seated Leg Curl', 'Сгибания ног сидя', 70.5, stack(9,150,7.5), 9, 1),
     ex('Back Extension', 'Гиперэкстензия', 55, around(55,2.5), 8, 1),
-    ex('Cable Crunch', 'Скручивания', 15, around(15,2.5,6), 10, 2),
+    ex('Cable Crunch', 'Скручивания', 15, around(15,2.5,6), 10, 2, [7]),
   ]});
 const DEFAULT_DAYS = () => [
   { id: uid(), name:'Anterior', items:[
@@ -167,13 +169,13 @@ const DEFAULT_DAYS = () => [
     ex('Unilateral Leg Extension', 'Разгибания ног по одной', 57.5, stack(5,120,7.5), [8,8], 1),
     ex('Reclined Biceps Curl', 'Сгибания на бицепс полулёжа', 68, around(68,2.5), 8, 1),
     ex('Dumbbell Hammer Curl', 'Молотки', 18, stack(2,50), [11,11], 1),
-    ex('Cable Crunch', 'Скручивания', 15, around(15,2.5,6), 10, 2),
+    ex('Cable Crunch', 'Скручивания', 15, around(15,2.5,6), 10, 2, [7]),
   ]},
   { id: uid(), name:'Posterior', items:[
     ex('Cable Lateral Raise (cuffed)', 'Махи в стороны в кроссовере, манжета', 13.5, CABLE, [10,9], 1),
-    ex('Calf Press', 'Жим икрами', 135, stack(5,300), 10, 2),
-    ex('Chest-Supported Smith Machine Row', 'Тяга в Смите с упором грудью', 100, around(100,2.5), 9, 2),
-    ex('Lat Pulldown', 'Вертикальная тяга', 107, around(107,4.5), 7, 2),
+    ex('Calf Press', 'Жим икрами', 135, stack(5,300), 9, 2, [10]),
+    ex('Chest-Supported Smith Machine Row', 'Тяга в Смите с упором грудью', 100, around(100,2.5), 9, 2, [8]),
+    ex('Lat Pulldown', 'Вертикальная тяга', 107, around(107,4.5), 7, 2, [6]),
     ex('Seated Leg Curl', 'Сгибания ног сидя', 70.5, stack(9,150,7.5), 9, 2),
     ex('Reverse Pec Deck Fly', 'Задние дельты', 88.5, stack(9,150,7.5), 9, 2),
     ex('Cable Triceps Pushdown (cuffed)', 'Разгибания на трицепс одной рукой, манжета', 33.8, CABLE, [10,10], 1),
@@ -360,6 +362,7 @@ const str  = (v, d='', max=120) => typeof v === 'string' ? v.slice(0, max) : d;
 const okId = v => typeof v === 'string' && /^[a-z0-9]{1,16}$/.test(v);
 const setsStr = v => { const n = String(v ?? '').replace(/\D/g,'').slice(0,2); return n; };
 
+const normExtra = (a, reps) => (Array.isArray(a) ? a : []).slice(0, 9).map(x => { x = x && typeof x === 'object' ? x : {}; const r = int(x.r, reps); return { r, l: int(x.l, r) }; });
 function normEx(e, seen){
   e = e && typeof e === 'object' ? e : {};
   let id = okId(e.id) && !seen.has(e.id) ? e.id : uid(); seen.add(id);
@@ -369,7 +372,7 @@ function normEx(e, seen){
   if (!w.includes(weight)) w = uniq([...w, weight]);
   const reps = int(e.reps, 8);
   return { id, sci: str(e.sci, 'Exercise'), ru: str(e.ru), weight, w, uni: !!e.uni,
-    reps, repsL: int(e.repsL, reps), sets: setsStr(e.sets) };
+    reps, repsL: int(e.repsL, reps), sets: setsStr(e.sets), extra: normExtra(e.extra, reps) };
 }
 function normBenchItem(it, seen){
   it = it && typeof it === 'object' ? it : {};
@@ -394,7 +397,7 @@ function normHist(h){
       it = it && typeof it === 'object' ? it : {};
       const reps = int(it.reps, 0);
       return { sci: str(it.sci, 'Exercise'), ru: str(it.ru), weight: r1(num(it.weight, 0)), uni: !!it.uni,
-        reps, repsL: int(it.repsL, reps), sets: setsStr(it.sets) || '0' };
+        reps, repsL: int(it.repsL, reps), sets: setsStr(it.sets) || '0', extra: normExtra(it.extra, reps) };
     }) };
 }
 function normalize(raw){
@@ -467,7 +470,16 @@ function dataSection(){
 const fmt = n => r1(n).toString().replace('.', ',');
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const day = () => S.days[S.cur] || S.days[0];
-const repsTxt = i => esc(i.uni ? `${i.reps}/${i.repsL}` : i.reps);
+const one = (r, l, uni) => uni ? `${r}/${l}` : `${r}`;
+const repsTxt = i => esc([one(i.reps, i.repsL, i.uni), ...(i.extra || []).map(x => one(x.r, x.l, i.uni))].join(', '));
+// результат: «107 кг × 7, 6» при разных повторах по подходам, иначе «107 кг × 7 × 2»
+const resTxt = i => (i.extra && i.extra.length) ? `${fmt(i.weight)} кг × ${repsTxt(i)}` : `${fmt(i.weight)} кг × ${repsTxt(i)} × ${esc(i.sets)}`;
+const nSets = e => Math.max(1, Math.min(10, parseInt(e.sets) || 1));
+// при увеличении подходов новые счётчики берут значения предыдущего подхода
+function ensureExtra(e){
+  e.extra = e.extra || [];
+  while (e.extra.length < nSets(e) - 1) { const p = e.extra[e.extra.length-1] || { r: e.reps, l: e.repsL }; e.extra.push({ r: p.r, l: p.l }); }
+}
 
 function lastFor(sci){
   for (let i = S.history.length-1; i >= 0; i--) {
@@ -497,10 +509,21 @@ function render(){
   app.innerHTML = h;
 }
 
-const stepper = (label, act, id, val, unit='') => `<div class="row"><span class="label">${label}</span><div class="ctrl">
-  <button class="pm" data-a="${act}" data-d="-1" data-id="${id}">${MINUS}</button>
+function repRows(e){
+  const n = nSets(e);
+  if (n < 2) return e.uni ? stepper('Повт. пр','r',e.id,e.reps) + stepper('Повт. лев','rl',e.id,e.repsL) : stepper('Повторы','r',e.id,e.reps);
+  ensureExtra(e);
+  let h = e.uni ? stepper('1 · прав','r',e.id,e.reps) + stepper('1 · лев','rl',e.id,e.repsL) : stepper('Подход 1','r',e.id,e.reps);
+  for (let k = 0; k < n - 1; k++) {
+    const x = e.extra[k];
+    h += e.uni ? stepper(`${k+2} · прав`,'rx',e.id,x.r,'',k) + stepper(`${k+2} · лев`,'rxl',e.id,x.l,'',k) : stepper(`Подход ${k+2}`,'rx',e.id,x.r,'',k);
+  }
+  return h;
+}
+const stepper = (label, act, id, val, unit='', k='') => `<div class="row"><span class="label">${label}</span><div class="ctrl">
+  <button class="pm" data-a="${act}" data-d="-1" data-id="${id}" data-k="${k}">${MINUS}</button>
   <div class="val">${val}${unit?`<small>${unit}</small>`:''}</div>
-  <button class="pm" data-a="${act}" data-d="1" data-id="${id}">${PLUS}</button>
+  <button class="pm" data-a="${act}" data-d="1" data-id="${id}" data-k="${k}">${PLUS}</button>
 </div></div>`;
 
 function mainView(){
@@ -514,12 +537,12 @@ function mainView(){
       <div class="ru">${esc(e.ru)}</div>
       <div class="rows">
         ${stepper('Вес','w',e.id,fmt(e.weight),'кг')}
-        ${e.uni ? stepper('Повт. пр','r',e.id,e.reps) + stepper('Повт. лев','rl',e.id,e.repsL) : stepper('Повторы','r',e.id,e.reps)}
         <div class="row"><span class="label">Подходы</span>
           <input class="sets" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" value="${esc(e.sets)}" data-id="${e.id}" data-f="sets">
         </div>
+        <div class="rr" data-rr="${e.id}">${repRows(e)}</div>
       </div>
-      ${last ? `<div class="last">Прошлый раз: ${fmt(last.weight)} кг × ${repsTxt(last)} × ${esc(last.sets)} · ${new Date(last.date).toLocaleDateString('ru-RU',{day:'numeric',month:'short'})}</div>` : ''}
+      ${last ? `<div class="last">Прошлый раз: ${resTxt(last)} · ${new Date(last.date).toLocaleDateString('ru-RU',{day:'numeric',month:'short'})}</div>` : ''}
     </div>`;
   }).join('') + `<button class="finish" data-a="finish">Завершить тренировку</button>`;
 }
@@ -556,7 +579,7 @@ function historyView(){
     const idx = S.history.length - 1 - ri;
     return `<div class="card">
       <div class="hday">${new Date(w.date).toLocaleDateString('ru-RU',{weekday:'short',day:'numeric',month:'long'})} · ${esc(w.day)}</div>
-      ${w.items.map(i=>`<div class="hline"><span>${esc(i.sci)}</span><span>${fmt(i.weight)} × ${repsTxt(i)} × ${esc(i.sets)}</span></div>`).join('')}
+      ${w.items.map(i=>`<div class="hline"><span>${esc(i.sci)}</span><span>${resTxt(i).replace(' кг','')}</span></div>`).join('')}
       <button class="del" data-a="delhist" data-i="${idx}">Удалить запись</button>
     </div>`;
   }).join('');
@@ -577,7 +600,7 @@ function sure(b){
 
 const find = id => (day().items || []).find(e => e.id === id);
 const DANGER = ['delex','delday','delhist','reset','bdelweek','resetbench','bpop','import'];
-const NEED_EX = ['w','r','rl','uni','mv','delex'];
+const NEED_EX = ['w','r','rl','rx','rxl','uni','mv','delex'];
 
 // ===== События =====
 document.addEventListener('click', ev => {
@@ -599,6 +622,10 @@ document.addEventListener('click', ev => {
   }
   if (a === 'r')  e.reps  = Math.max(0, Math.min(99, e.reps + dd));
   if (a === 'rl') e.repsL = Math.max(0, Math.min(99, e.repsL + dd));
+  if (a === 'rx' || a === 'rxl') {
+    ensureExtra(e); const x = e.extra[int(b.dataset.k, 0, 0, 8)];
+    if (x) { const f = a === 'rx' ? 'r' : 'l'; x[f] = Math.max(0, Math.min(99, x[f] + dd)); }
+  }
   if (a === 'uni') e.uni = !e.uni;
   if (a === 'mv') {
     const it = day().items, i = it.indexOf(e), j = i + dd;
@@ -608,7 +635,11 @@ document.addEventListener('click', ev => {
   if (a === 'finish') {
     const d = day(), now = Date.now(), lastH = S.history[S.history.length-1];
     const rec = { date: now, day: d.name,
-      items: d.items.map(({sci,ru,weight,reps,repsL,uni,sets}) => ({sci,ru,weight,reps,repsL,uni,sets: sets||'0'})) };
+      items: d.items.map(e => { const n = nSets(e); ensureExtra(e);
+        const extra = n > 1 ? e.extra.slice(0, n-1).map(x => ({ r: x.r, l: x.l })) : [];
+        // если во всех подходах одинаково — храним коротко: «8 × 3»
+        const same = extra.every(x => x.r === e.reps && (!e.uni || x.l === e.repsL));
+        return { sci: e.sci, ru: e.ru, weight: e.weight, reps: e.reps, repsL: e.repsL, uni: e.uni, sets: e.sets || '0', extra: same ? [] : extra }; }) };
     // повторное нажатие в течение 2 часов для того же дня обновляет запись, а не дублирует её
     if (lastH && lastH.day === d.name && now - lastH.date < 2*3600e3) { S.history[S.history.length-1] = rec; toast('Тренировка обновлена'); }
     else { S.history.push(rec); toast('Тренировка сохранена'); }
@@ -648,7 +679,13 @@ document.addEventListener('input', ev => {
   const t = ev.target, f = t.dataset.f; if (!f) return;
   const e = t.dataset.id ? (find(t.dataset.id) || findB(t.dataset.id)) : null;
   if (t.dataset.id && !e) return;
-  if (f === 'sets') { t.value = setsStr(t.value); e.sets = t.value; }
+  if (f === 'sets') {
+    t.value = setsStr(t.value); e.sets = t.value; save();
+    // перерисовываем только счётчики повторов этой карточки — клавиатура не закрывается
+    const box = document.querySelector(`.rr[data-rr="${t.dataset.id}"]`);
+    if (box) box.innerHTML = repRows(e);
+    return;
+  }
   if (f === 'sci' || f === 'ru') e[f] = t.value.slice(0, 120);
   if (f === 'bsci') day().sci = t.value.slice(0, 120);
   if (f === 'bru') day().ru = t.value.slice(0, 120);
