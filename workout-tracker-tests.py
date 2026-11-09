@@ -8,7 +8,7 @@ with sync_playwright() as p:
     pg=ctx.new_page(); errs=[]; pg.on('pageerror',lambda e:errs.append(str(e)))
     pg.on('dialog', lambda d: (errs.append('DIALOG '+d.message), d.dismiss()))
     pg.goto(U)
-    ok('loads 3 tabs', len(pg.query_selector_all('.tab'))==3)
+    ok('loads 3 tabs', len(pg.query_selector_all('.tab'))==4)
     # double finish → one record
     pg.click('[data-a=finish]'); pg.click('[data-a=finish]')
     ok('no duplicate finish', pg.evaluate('S.history.length')==1)
@@ -35,11 +35,11 @@ with sync_playwright() as p:
     ok('cur clamped', pg.evaluate('S.cur')<pg.evaluate('S.days.length'))
     # corrupted storage
     pg.evaluate("localStorage.setItem('workout-tracker-v2','{broken json')"); pg.reload()
-    ok('survives broken storage', len(pg.query_selector_all('.tab'))==3)
+    ok('survives broken storage', len(pg.query_selector_all('.tab'))==4)
     pg.evaluate("localStorage.setItem('workout-tracker-v2', JSON.stringify({days:[], history:'x'}))"); pg.reload()
-    ok('survives empty days', len(pg.query_selector_all('.tab'))==3)
+    ok('survives empty days', len(pg.query_selector_all('.tab'))==4)
     pg.evaluate("localStorage.setItem('workout-tracker-v2', JSON.stringify({days:[{name:'A',items:[{sci:'Pull-up',weight:0,w:[0,5,10],reps:8,sets:'3'}]}]}))"); pg.reload()
-    ok('old/partial data + bench added', pg.evaluate("S.days.length")==2)
+    ok('old/partial data + fullbody + bench added', pg.evaluate("S.days.length")==3)
     # bodyweight progress
     pg.click('[data-a=finish]'); pg.evaluate("S.history[0].date-=3*864e5;save()")
     pg.click('[data-a=r][data-d=\"1\"]'); pg.click('[data-a=finish]')
@@ -49,7 +49,7 @@ with sync_playwright() as p:
     pg.click('[data-a=delex]'); ok('delete works', pg.evaluate('S.days[0].items.length')==0)
     pg.click('.back'); ok('empty day message', 'Нет упражнений' in pg.inner_text('#app'))
     # bench ops
-    pg.click('[data-a=day][data-i="1"]'); n=pg.evaluate("allBench(day()).filter(x=>x.done).length")
+    pg.click('[data-a=day][data-i="2"]'); n=pg.evaluate("allBench(day()).filter(x=>x.done).length")
     pg.click('.bline.next'); ok('bench toggle', pg.evaluate("allBench(day()).filter(x=>x.done).length")==n+1)
     # weight list junk
     pg.evaluate("S.cur=0;S.days[0].items.push(normEx({sci:'T',weight:20},new Set()));view='edit';render()")

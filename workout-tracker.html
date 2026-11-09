@@ -144,6 +144,19 @@ const ex = (sci, ru, weight, list, reps=8, sets=1) => {
 };
 
 const CABLE = stack(2.25, 90);              // кроссовер: 13.5, 33.8 …
+const FULLBODY_DAY = () => ({ id: uid(), name:'Fullbody', items:[
+    ex('Cable Lateral Raise (cuffed)', 'Махи в стороны в кроссовере, манжета', 13.5, CABLE, [10,9], 1),
+    ex('Barbell Bench Press', 'Жим штанги лёжа', 85, around(85,2.5,30), 5, 3),
+    ex('Chest-Supported Smith Machine Row', 'Тяга в Смите с упором грудью', 100, around(100,2.5), 9, 1),
+    ex('Lat Pulldown', 'Вертикальная тяга', 107, around(107,4.5), 7, 2),
+    ex('Reclined Biceps Curl', 'Сгибания на бицепс полулёжа', 68, around(68,2.5), 8, 1),
+    ex('Dumbbell Hammer Curl', 'Молотки', 18, stack(2,50), [11,11], 1),
+    ex('Cable Triceps Pushdown (cuffed)', 'Разгибания на трицепс одной рукой, манжета', 33.8, CABLE, [10,10], 1),
+    ex('Unilateral Leg Extension', 'Разгибания ног по одной', 57.5, stack(5,120,7.5), [8,8], 1),
+    ex('Seated Leg Curl', 'Сгибания ног сидя', 70.5, stack(9,150,7.5), 9, 1),
+    ex('Back Extension', 'Гиперэкстензия', 55, around(55,2.5), 8, 1),
+    ex('Cable Crunch', 'Скручивания', 15, around(15,2.5,6), 10, 2),
+  ]});
 const DEFAULT_DAYS = () => [
   { id: uid(), name:'Anterior', items:[
     ex('Cable Lateral Raise (cuffed)', 'Махи в стороны в кроссовере, манжета', 13.5, CABLE, [10,9], 1),
@@ -166,6 +179,7 @@ const DEFAULT_DAYS = () => [
     ex('Cable Triceps Pushdown (cuffed)', 'Разгибания на трицепс одной рукой, манжета', 33.8, CABLE, [10,10], 1),
     ex('Back Extension', 'Гиперэкстензия', 55, around(55,2.5), 8, 1),
   ]},
+  FULLBODY_DAY(),
   BENCH_DAY(),
 ];
 
@@ -338,7 +352,7 @@ function progressView(){
 
 // ===== Хранилище =====
 const KEY = 'workout-tracker-v2';
-const VER = 3;
+const VER = 4;
 // проверка и починка данных: защищает от битых/чужих данных и HTML-инъекций при импорте
 const num  = (v, d, min=0, max=1000) => { v = Number(v); return isFinite(v) ? Math.min(max, Math.max(min, v)) : d; };
 const int  = (v, d, min=0, max=99) => Math.round(num(v, d, min, max));
@@ -388,6 +402,11 @@ function normalize(raw){
   const seen = new Set();
   let days = (Array.isArray(raw.days) ? raw.days : []).slice(0, 20).map(d => normDay(d, seen));
   if (!days.length) days = DEFAULT_DAYS();
+  // v4: новый день Fullbody — добавляем один раз после Posterior
+  if ((Number(raw.ver) || 0) < 4 && raw.days && !days.some(d => d.name === 'Fullbody')) {
+    const i = days.findIndex(d => d.name === 'Posterior');
+    days.splice(i >= 0 ? i + 1 : days.length, 0, FULLBODY_DAY());
+  }
   if (!days.some(d => d.kind === 'bench')) {
     const i = days.findIndex(d => d.name === 'Bench Press');
     if (i >= 0) days[i] = BENCH_DAY(); else days.push(BENCH_DAY());
