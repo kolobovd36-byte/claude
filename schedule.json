@@ -288,6 +288,20 @@
       "day": "mon",
       "lesson": 7,
       "cancel": true
+    },
+    {
+      "week": "2026-11-10",
+      "day": "tue",
+      "lesson": 2,
+      "cancel": true
+    },
+    {
+      "week": "2026-11-10",
+      "day": "tue",
+      "lesson": 8,
+      "subject": "Обществознание",
+      "room": "403",
+      "teacher": "Дарья Сергеевна"
     }
   ]
 }
