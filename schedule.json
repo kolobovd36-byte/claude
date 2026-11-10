@@ -302,6 +302,41 @@
       "subject": "Обществознание",
       "room": "403",
       "teacher": "Дарья Сергеевна"
+    },
+    {
+      "week": "2026-11-11",
+      "day": "wed",
+      "lesson": 1,
+      "subject": "Физика",
+      "room": "408",
+      "teacher": "Нина Евгеньевна"
+    },
+    {
+      "week": "2026-11-11",
+      "day": "wed",
+      "lesson": 3,
+      "room": "403",
+      "teacher": "Дарья Сергеевна"
+    },
+    {
+      "week": "2026-11-11",
+      "day": "wed",
+      "lesson": 4,
+      "cancel": true
+    },
+    {
+      "week": "2026-11-11",
+      "day": "wed",
+      "lesson": 5,
+      "subject": "Тер. вер",
+      "room": "304",
+      "teacher": "Ирина Юрьевна"
+    },
+    {
+      "week": "2026-11-11",
+      "day": "wed",
+      "lesson": 7,
+      "cancel": true
     }
   ]
 }
