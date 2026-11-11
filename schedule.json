@@ -337,6 +337,37 @@
       "day": "wed",
       "lesson": 7,
       "cancel": true
+    },
+    {
+      "week": "2026-11-12",
+      "day": "thu",
+      "lesson": 1,
+      "subject": "Физика",
+      "room": "408",
+      "teacher": "Нина Евгеньевна"
+    },
+    {
+      "week": "2026-11-12",
+      "day": "thu",
+      "lesson": 2,
+      "subject": "Алгебра",
+      "room": "304",
+      "teacher": "Ирина Юрьевна"
+    },
+    {
+      "week": "2026-11-12",
+      "day": "thu",
+      "lesson": 5,
+      "subject": "Геометрия",
+      "room": "304",
+      "teacher": "Ирина Юрьевна"
+    },
+    {
+      "week": "2026-11-12",
+      "day": "thu",
+      "lesson": 7,
+      "room": "403",
+      "teacher": "Дарья Сергеевна"
     }
   ]
 }
