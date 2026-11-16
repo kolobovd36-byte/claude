@@ -264,19 +264,7 @@
   },
   "changes": [
     {
-      "week": "2026-11-09",
-      "day": "mon",
-      "lesson": 1,
-      "cancel": true
-    },
-    {
-      "week": "2026-11-09",
-      "day": "mon",
-      "lesson": 2,
-      "cancel": true
-    },
-    {
-      "week": "2026-11-09",
+      "week": "2026-11-16",
       "day": "mon",
       "lesson": 6,
       "subject": "Физика",
@@ -284,19 +272,21 @@
       "teacher": "Нина Евгеньевна"
     },
     {
-      "week": "2026-11-09",
+      "week": "2026-11-16",
       "day": "mon",
       "lesson": 7,
       "cancel": true
     },
     {
-      "week": "2026-11-10",
+      "week": "2026-11-17",
       "day": "tue",
       "lesson": 2,
-      "cancel": true
+      "subject": "Инд. проект",
+      "room": "304",
+      "teacher": "Ирина Юрьевна"
     },
     {
-      "week": "2026-11-10",
+      "week": "2026-11-17",
       "day": "tue",
       "lesson": 8,
       "subject": "Обществознание",
@@ -304,42 +294,14 @@
       "teacher": "Дарья Сергеевна"
     },
     {
-      "week": "2026-11-11",
-      "day": "wed",
-      "lesson": 1,
-      "subject": "Физика",
-      "room": "408",
-      "teacher": "Нина Евгеньевна"
-    },
-    {
-      "week": "2026-11-11",
+      "week": "2026-11-18",
       "day": "wed",
       "lesson": 3,
       "room": "403",
       "teacher": "Дарья Сергеевна"
     },
     {
-      "week": "2026-11-11",
-      "day": "wed",
-      "lesson": 4,
-      "cancel": true
-    },
-    {
-      "week": "2026-11-11",
-      "day": "wed",
-      "lesson": 5,
-      "subject": "Тер. вер",
-      "room": "304",
-      "teacher": "Ирина Юрьевна"
-    },
-    {
-      "week": "2026-11-11",
-      "day": "wed",
-      "lesson": 7,
-      "cancel": true
-    },
-    {
-      "week": "2026-11-12",
+      "week": "2026-11-19",
       "day": "thu",
       "lesson": 1,
       "subject": "Физика",
@@ -347,7 +309,7 @@
       "teacher": "Нина Евгеньевна"
     },
     {
-      "week": "2026-11-12",
+      "week": "2026-11-19",
       "day": "thu",
       "lesson": 2,
       "subject": "Алгебра",
@@ -355,7 +317,7 @@
       "teacher": "Ирина Юрьевна"
     },
     {
-      "week": "2026-11-12",
+      "week": "2026-11-19",
       "day": "thu",
       "lesson": 5,
       "subject": "Геометрия",
@@ -363,14 +325,14 @@
       "teacher": "Ирина Юрьевна"
     },
     {
-      "week": "2026-11-12",
+      "week": "2026-11-19",
       "day": "thu",
       "lesson": 7,
       "room": "403",
       "teacher": "Дарья Сергеевна"
     },
     {
-      "week": "2026-11-13",
+      "week": "2026-11-20",
       "day": "fri",
       "lesson": 1,
       "subject": "История",
@@ -378,13 +340,7 @@
       "teacher": "Дарья Сергеевна"
     },
     {
-      "week": "2026-11-13",
-      "day": "fri",
-      "lesson": 4,
-      "cancel": true
-    },
-    {
-      "week": "2026-11-13",
+      "week": "2026-11-20",
       "day": "fri",
       "lesson": 7,
       "set": "en",
@@ -392,7 +348,7 @@
       "room": "416"
     },
     {
-      "week": "2026-11-13",
+      "week": "2026-11-20",
       "day": "fri",
       "lesson": 8,
       "set": "project",
