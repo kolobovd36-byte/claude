@@ -266,5 +266,34 @@
       }
     ]
   },
-  "changes": []
+  "changes": [
+    {
+      "week": "2026-11-18",
+      "day": "wed",
+      "lesson": 3,
+      "subject": "Физика",
+      "room": "408",
+      "teacher": "Нина Евгеньевна"
+    },
+    {
+      "week": "2026-11-18",
+      "day": "wed",
+      "lesson": 4,
+      "cancel": true
+    },
+    {
+      "week": "2026-11-18",
+      "day": "wed",
+      "lesson": 5,
+      "subject": "История",
+      "room": "403",
+      "teacher": "Дарья Сергеевна"
+    },
+    {
+      "week": "2026-11-18",
+      "day": "wed",
+      "lesson": 7,
+      "cancel": true
+    }
+  ]
 }
