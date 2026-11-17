@@ -21,11 +21,23 @@ async function loadData() {
   const lfm = FileManager.local();
   const cache = lfm.joinPath(lfm.documentsDirectory(), "schedule-cache.json");
   if (DATA_URL) {
+    const hasCache = lfm.fileExists(cache);
+    const readCache = () => JSON.parse(lfm.readString(cache));
+    // В виджете у iOS мало времени на работу. Если копия свежая (до 10 минут),
+    // берём её и не ходим в интернет вообще
+    if (config.runsInWidget && hasCache) {
+      const age = Date.now() - lfm.modificationDate(cache).getTime();
+      if (age < 10 * 60 * 1000) return readCache();
+    }
     try {
       const req = new Request(DATA_URL + "&t=" + Date.now());
       req.headers = { "Accept": "application/vnd.github.raw", "Cache-Control": "no-cache" };
-      req.timeoutInterval = 10;
-      const txt = await req.loadString();
+      req.timeoutInterval = 4;
+      // Жёсткий лимит 4 секунды: при слабом интернете не ждём, а показываем копию
+      const txt = await Promise.race([
+        req.loadString(),
+        new Promise((_, rej) => Timer.schedule(4000, false, () => rej(new Error("Нет связи с GitHub")))),
+      ]);
       const code = req.response && req.response.statusCode;
       if (code && code !== 200) {
         throw new Error(code === 404
@@ -36,8 +48,8 @@ async function loadData() {
       lfm.writeString(cache, txt);
       return data;
     } catch (e) {
-      // нет интернета — берём последнюю сохранённую копию
-      if (lfm.fileExists(cache)) { FROM_CACHE = true; return JSON.parse(lfm.readString(cache)); }
+      // нет интернета или он слишком медленный — берём последнюю сохранённую копию
+      if (hasCache) { FROM_CACHE = true; return readCache(); }
       throw e;
     }
   }
