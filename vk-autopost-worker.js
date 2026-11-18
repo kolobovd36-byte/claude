@@ -1,9 +1,10 @@
 // «О! Пригодится» — бот-автопостер для сообщества ВК (vk.com/club243091521)
-// Работает бесплатно на Cloudflare Workers:
-//   - каждый день в 07:00 МСК (Cron Trigger "0 4 * * *" — это 04:00 UTC) присылает 2 готовых поста с фото;
-//   - под постом кнопки: ✅ Опубликовать / ✏️ Правка / 🖼 Другое фото / ❌ Отклонить;
-//   - «Опубликовать» сразу выкладывает пост в группу ВК от имени сообщества.
-// Тексты — бесплатный Google Gemini, картинки — бесплатный Cloudflare Workers AI (FLUX).
+// Работает бесплатно и круглосуточно на Cloudflare Workers (компьютер не нужен):
+//   - каждый день в 07:00 МСК присылает в Telegram готовые посты с фото;
+//   - кнопки: ✅ Опубликовать / 🕒 Отложить / ✏️ Правка / 🖼 Другое фото / ❌ Отклонить;
+//   - публикует в группу ВК от имени сообщества (текст + фото), сразу или в выбранное время.
+// Тексты — Google Gemini (при перегрузке — запасные модели и нейросеть Cloudflare),
+// картинки — Cloudflare Workers AI (FLUX). Всё на бесплатных тарифах.
 //
 // Переменные (Settings → Variables and Secrets):
 //   BOT_TOKEN       — токен бота от @BotFather (secret)
@@ -11,42 +12,57 @@
 //   ADMIN_ID        — твой числовой Telegram ID (бот покажет его на /start)
 //   GEMINI_API_KEY  — ключ Gemini API (secret)
 //   GEMINI_MODEL    — необязательно, по умолчанию gemini-flash-latest
-//   VK_CLIENT_ID    — ID приложения VK ID (id.vk.com → «Для бизнеса»), Redirect URL: https://<worker>/vk-callback
+//   VK_CLIENT_ID    — ID приложения VK ID; Redirect URL в нём: https://<worker>/vk-callback
 //   VK_TOKEN        — необязательно: готовый токен ВК вместо входа через VK ID (secret)
 //   VK_GROUP_ID     — id группы без минуса, по умолчанию 243091521
 //   POSTS_PER_DAY   — необязательно, по умолчанию 2
 // Привязки (Settings → Bindings):
-//   KV namespace с именем DB, Workers AI с именем AI,
-//   Queue (producer) с именем JOBS + этот же воркер как consumer очереди (max_retries 0).
-// Триггер: Settings → Triggers → Cron Triggers → "0 4 * * *".
-// После деплоя один раз открыть: https://<worker>/setup?key=<WEBHOOK_SECRET>
-// и войти в ВК: https://<worker>/vk-login?key=<WEBHOOK_SECRET> (или командой /vk в боте)
+//   KV namespace DB, Workers AI с именем AI,
+//   Queue (producer) с именем JOBS; этот же воркер — consumer очереди (batch_size 1, max_retries 0, max_concurrency 1).
+// Триггер: Cron "0 4 * * *" (= 07:00 МСК).
+// После деплоя: открыть https://<worker>/setup?key=<WEBHOOK_SECRET>, затем /vk в боте.
 
 const STYLE_GUIDE = `Ты — автор постов для сообщества ВКонтакте «О! Пригодится» — копилка полезных хитростей и находок для повседневной жизни. Слоган: полезное может быть ещё и интересным. Аудитория — в основном женщины 25–55, которые ведут дом, любят уют и разумную экономию.
 
-РУБРИКИ (каждый пост — одна рубрика, два поста в день — всегда разные рубрики, чередуй):
+РУБРИКИ (каждый пост — одна рубрика; если постов несколько — из разных рубрик):
 1. Дом и уют — маленькие бытовые хитрости: уборка, кухня, хранение, стирка, уход за растениями.
-2. Полезные находки — необычные недорогие вещи для дома, о которых мало кто знает (описывай тип вещи и чем полезна, без брендов, ссылок и цен в рублях).
+2. Полезные находки — необычные недорогие вещи для дома, о которых мало кто знает (описывай тип вещи и чем полезна, без брендов, ссылок и цен).
 3. Разумная экономия — как тратить меньше без потери удобства: продукты, коммуналка, покупки.
-4. Секреты техники — полезные скрытые функции смартфона, бытовой техники, мессенджеров (только реально существующие функции, без выдумок).
+4. Секреты техники — полезные функции смартфона, бытовой техники, мессенджеров (только реально существующие функции, без выдумок; если не уверен — выбери другую тему).
 5. А вы знали? — неожиданные факты из быта и простые решения, которые хочется сразу попробовать.
 
-ПОДАЧА (как в постах сообщества):
-- Первая строка — цепляющий заголовок ЗАГЛАВНЫМИ буквами с эмодзи, часто с «О!» или вопросом («О! А ВЫ ЗНАЛИ, ЧТО…», «ХИТРОСТЬ, КОТОРАЯ СЭКОНОМИТ ВАМ 10 МИНУТ»).
+ПОДАЧА:
+- Первая строка — цепляющий заголовок ЗАГЛАВНЫМИ буквами с эмодзи, часто с «О!» или вопросом.
 - Дальше — узнаваемая жизненная ситуация («Бывало у вас такое: …»), потом сама польза.
-- Обращение на «вы», тёплый дружеский тон, лёгкая эмоциональность, никаких скучных лекций и канцелярита.
-- Способы и шаги — короткими пунктами, каждый пункт начинается с эмодзи (✅ 🏠 💡 🛒 🧺 🌿 📱 и т.п.).
-- Короткие абзацы по 1–3 предложения, между абзацами пустая строка.
-- Длина 600–1100 символов.
-- Ближе к концу — призыв сохранить пост или отправить близким («Сохраняйте, чтобы не потерять!»).
+- Обращение на «вы», тёплый дружеский тон, лёгкая эмоциональность, без лекций и канцелярита.
+- Способы и шаги — короткими пунктами, каждый пункт с новой строки и начинается с эмодзи (✅ 🏠 💡 🛒 🧺 🌿 📱 и т.п.).
+- Короткие абзацы по 1–3 предложения. Между абзацами ОБЯЗАТЕЛЬНО пустая строка.
+- Длина строго 600–1100 символов.
+- Ближе к концу — призыв сохранить пост или отправить близким.
 - Последняя строка — вопрос к подписчикам, чтобы писали в комментариях.
-- Без markdown (никаких ** и #), без хэштегов. Советы только безопасные и проверенные, без медицинских рекомендаций.
+- Без markdown (никаких ** и #), без хэштегов, без ссылок. Советы только безопасные и проверенные: никаких опасных смесей бытовой химии, медицинских и финансовых рекомендаций.
 
-ВИЗУАЛЬНЫЙ СТИЛЬ ФОТО (как обложка и посты группы):
-- Уютная реалистичная фотосцена дома: тёплый мягкий дневной свет, светлое дерево, плетёные корзинки, комнатные растения в зелени, вязаный плед, белая керамика.
+ПРИМЕР ПОДАЧИ (тему не повторяй, бери только стиль):
+О! А ВЫ ЗНАЛИ, ЧТО ГУБКУ ДЛЯ ПОСУДЫ МОЖНО «ОБНОВИТЬ» ЗА МИНУТУ? 🧽
+
+Бывало у вас такое: губка ещё целая, а запах уже не радует, и рука сама тянется за новой?
+
+Есть простой способ продлить ей жизнь:
+
+✅ Промойте губку и хорошо отожмите
+✅ Положите во влажном виде в микроволновку на 1 минуту
+✅ Дайте остыть 5 минут — и можно снова пользоваться
+
+💡 А раз в 2–3 недели губку всё же лучше менять — так на кухне будет чище, а покупок меньше.
+
+Сохраняйте, чтобы не потерять, и отправьте тем, кто тоже вечно покупает губки пачками!
+
+А как часто вы меняете губку для посуды? 👇
+
+ВИЗУАЛЬНЫЙ СТИЛЬ ФОТО:
+- Уютная реалистичная фотосцена дома: тёплый мягкий дневной свет, светлое дерево, плетёные корзинки, комнатные растения, вязаный плед, белая керамика.
 - Палитра бренда: тёплый оранжевый, сочный зелёный, солнечно-жёлтый, кремовый.
-- В кадре — предмет или ситуация из поста, крупно и понятно, композиция чистая.
-- Стиль: яркий, позитивный, «как с обложки журнала о доме», без людей с лицами крупным планом.`;
+- В кадре — предмет или ситуация из поста, крупно и понятно, чистая композиция, без людей с лицами крупным планом.`;
 
 const PHOTO_SUFFIX =
   ", cozy realistic home photography, warm soft daylight, light wood, wicker baskets, green houseplants, knitted blanket, white ceramics, warm orange, fresh green and sunny yellow accents, magazine quality, sharp focus, no text, no letters, no logos, no watermark";
@@ -55,18 +71,26 @@ const IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell";
 const FALLBACK_TEXT_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 const DRAFT_TTL = 60 * 60 * 24 * 7; // черновики живут 7 дней
 const VK_V = "5.199";
+const MIN_LEN = 450;
+const MAX_LEN = 1400;
+const SLOT_HOURS = [9, 12, 15, 18, 20]; // время для отложенной публикации (МСК)
+const MSK_OFFSET = 3 * 3600 * 1000;
 
 const HELP_TEXT = `Привет! Я бот сообщества «О! Пригодится» 💡
 
-Каждый день в 07:00 по МСК присылаю 2 готовых поста с фото. Под каждым кнопки:
-✅ Опубликовать — сразу выложу в группу ВК
+Каждый день в 07:00 по МСК присылаю готовые посты с фото. Под каждым кнопки:
+✅ Опубликовать — сразу выложу в группу ВК (текст + фото)
+🕒 Отложить — выложу в выбранное время
 ✏️ Правка — перепишу текст по твоему комментарию или заменю фото
 🖼 Другое фото — нарисую новую картинку
 ❌ Отклонить — можно попросить другой пост
 
+Команды:
 /new — сделать посты прямо сейчас
+/new тема — пост на свою тему (например: /new как хранить зелень)
 /cancel — отменить правку
-/vk — подключить ВКонтакте`;
+/vk — подключить или переподключить ВКонтакте
+/status — проверить, всё ли работает`;
 
 const seenUpdates = new Map();
 
@@ -85,10 +109,12 @@ export default {
         secret_token: env.WEBHOOK_SECRET,
         allowed_updates: ["message", "callback_query"],
         max_connections: 5,
+        drop_pending_updates: false,
       });
       await tg(env, "setMyCommands", {
         commands: [
-          { command: "new", description: "Сделать посты сейчас" },
+          { command: "new", description: "Сделать посты сейчас (можно с темой)" },
+          { command: "status", description: "Проверить, всё ли работает" },
           { command: "cancel", description: "Отменить правку" },
           { command: "vk", description: "Подключить ВКонтакте" },
           { command: "start", description: "Помощь" },
@@ -124,13 +150,23 @@ export default {
         return new Response("ok");
       }
       if (isDuplicate(update.update_id)) return new Response("ok");
-      if (env.JOBS) {
-        // Долгую работу (нейросеть, картинки, ВК) делаем в очереди: там до 15 минут вместо 30 секунд.
+      // Чужие апдейты отбрасываем сразу, не тратя очередь
+      const chatId = updateChatId(update);
+      if (env.ADMIN_ID && String(chatId) !== String(env.ADMIN_ID).trim()) {
         if (update.callback_query) ctx.waitUntil(tg(env, "answerCallbackQuery", { callback_query_id: update.callback_query.id }));
-        await env.JOBS.send({ update });
-      } else {
-        ctx.waitUntil(safeHandle(update, env));
+        return new Response("ok");
       }
+      if (update.callback_query) ctx.waitUntil(tg(env, "answerCallbackQuery", { callback_query_id: update.callback_query.id }));
+      if (env.JOBS) {
+        // Долгая работа (нейросеть, картинки, ВК) — в очереди: там до 15 минут вместо 30 секунд.
+        try {
+          await env.JOBS.send({ update });
+          return new Response("ok");
+        } catch (e) {
+          console.log("queue send failed:", e && e.message);
+        }
+      }
+      ctx.waitUntil(safeHandle(update, env));
       return new Response("ok");
     }
 
@@ -139,17 +175,40 @@ export default {
 
   async queue(batch, env) {
     for (const msg of batch.messages) {
-      await safeHandle(msg.body.update, env);
-      msg.ack(); // без повторов, чтобы пост не опубликовался дважды
+      const update = msg.body && msg.body.update;
+      try {
+        if (update && !(await alreadyHandled(env, update.update_id))) await safeHandle(update, env);
+      } finally {
+        msg.ack(); // без повторов, чтобы пост не опубликовался дважды
+      }
     }
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(
-      generate(env, postsPerDay(env)).catch((e) => notifyError(env, "Утренняя генерация не удалась", e))
-    );
+    ctx.waitUntil(morningRun(env));
   },
 };
+
+async function morningRun(env) {
+  // Держим вход в ВК «живым», чтобы токен не протух без публикаций
+  if (env.VK_CLIENT_ID && (await env.DB.get("vk_auth"))) {
+    try {
+      await vkToken(env, true);
+    } catch (e) {
+      await send(env, env.ADMIN_ID, `⚠️ Вход в ВК слетел: ${short(e.message, 200)}\nОтправь /vk и войди заново, иначе публикация не сработает.`);
+    }
+  }
+  // До 3 попыток с паузой, если нейросети перегружены
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await generate(env, postsPerDay(env));
+      return;
+    } catch (e) {
+      if (attempt === 3) return notifyError(env, "Утренние посты не получились (3 попытки). Попробуй /new позже", e);
+      await sleep(3 * 60 * 1000);
+    }
+  }
+}
 
 function selfCheck(env) {
   return {
@@ -157,13 +216,19 @@ function selfCheck(env) {
     ADMIN_ID: Boolean(env.ADMIN_ID),
     GEMINI_API_KEY: Boolean(env.GEMINI_API_KEY),
     VK_CLIENT_ID: Boolean(env.VK_CLIENT_ID),
-    VK_TOKEN: Boolean(env.VK_TOKEN),
     KV_DB: Boolean(env.DB),
     WORKERS_AI: Boolean(env.AI),
+    QUEUE: Boolean(env.JOBS),
   };
 }
 
 // ---------- Telegram ----------
+
+function updateChatId(update) {
+  const cq = update.callback_query;
+  const m = update.message;
+  return cq ? cq.message && cq.message.chat && cq.message.chat.id : m && m.chat && m.chat.id;
+}
 
 async function safeHandle(update, env) {
   try {
@@ -176,8 +241,7 @@ async function safeHandle(update, env) {
 async function handleUpdate(update, env) {
   const cq = update.callback_query;
   const m = update.message;
-  const chatId = cq ? cq.message && cq.message.chat.id : m && m.chat && m.chat.id;
-  if (cq && !env.JOBS) tg(env, "answerCallbackQuery", { callback_query_id: cq.id }); // убираем «часики» на кнопке
+  const chatId = updateChatId(update);
 
   if (!env.ADMIN_ID) {
     if (chatId) await send(env, chatId, `Твой Telegram ID: ${chatId}\nВпиши его в переменную ADMIN_ID воркера.`);
@@ -189,24 +253,23 @@ async function handleUpdate(update, env) {
   if (!m) return;
 
   const text = (m.text || m.caption || "").trim();
-  if (/^\/(start|help)\b/.test(text)) return send(env, chatId, HELP_TEXT);
-  if (/^\/new\b/.test(text)) {
-    await send(env, chatId, "⏳ Пишу посты и рисую фото, это займёт около минуты…");
-    return generate(env, postsPerDay(env));
-  }
-  if (/^\/vk\b/.test(text)) {
-    if (!env.VK_CLIENT_ID) return send(env, chatId, "Сначала нужно задать VK_CLIENT_ID в настройках воркера.");
-    const origin = await env.DB.get("origin");
-    if (!origin) return send(env, chatId, "Сначала открой /setup воркера.");
-    return tg(env, "sendMessage", {
-      chat_id: chatId,
-      text: "Нажми, чтобы подключить ВКонтакте (войди под аккаунтом-админом группы):",
-      reply_markup: { inline_keyboard: [[{ text: "🔑 Войти через VK ID", url: `${origin}/vk-login?key=${env.WEBHOOK_SECRET}` }]] },
-    });
-  }
-  if (/^\/cancel\b/.test(text)) {
-    await env.DB.delete("awaiting");
-    return send(env, chatId, "Ок, правку отменил.");
+  const cmd = /^\/([a-z_]+)(?:@\w+)?(?:\s+([\s\S]*))?$/i.exec(text);
+  if (cmd) {
+    const name = cmd[1].toLowerCase();
+    const args = (cmd[2] || "").trim();
+    if (name === "start" || name === "help") return send(env, chatId, HELP_TEXT);
+    if (name === "new") {
+      await env.DB.delete("awaiting");
+      await send(env, chatId, args ? `⏳ Пишу пост на тему «${short(args, 100)}»…` : "⏳ Пишу посты и рисую фото, это займёт около минуты…");
+      return generate(env, args ? 1 : postsPerDay(env), null, short(args, 300));
+    }
+    if (name === "cancel") {
+      await env.DB.delete("awaiting");
+      return send(env, chatId, "Ок, правку отменил.");
+    }
+    if (name === "status") return sendStatus(env, chatId);
+    if (name === "vk") return sendVkLogin(env, chatId);
+    return send(env, chatId, "Не знаю такую команду. /start — список команд.");
   }
 
   const id = await env.DB.get("awaiting");
@@ -226,60 +289,88 @@ async function handleUpdate(update, env) {
   if (photoWish) {
     const wish = photoWish[1].trim();
     if (wish) d.image_prompt = await translatePrompt(env, d.image_prompt, wish);
+    await saveDraft(env, d);
     await send(env, chatId, "🎨 Рисую новое фото…");
     return redrawPhoto(env, d);
   }
 
   await send(env, chatId, "✍️ Переписываю…");
-  const newText = await gemini(env, {
-    system: STYLE_GUIDE + "\n\nТы редактируешь готовый пост. Верни ТОЛЬКО новый текст поста целиком, без пояснений, без кавычек и без markdown.",
-    user: `Текущий пост:\n---\n${d.text}\n---\n\nПравка: ${text}`,
+  const newText = await llm(env, {
+    system:
+      STYLE_GUIDE +
+      "\n\nТы редактируешь готовый пост. Выполни правку пользователя, сохрани стиль и правила оформления. Верни ТОЛЬКО новый текст поста целиком, без пояснений, без кавычек и без markdown.",
+    user: `Текущий пост:\n---\n${d.text}\n---\n\nПравка: ${short(text, 1500)}`,
     temperature: 0.7,
   });
-  if (!newText) throw new Error("Gemini вернул пустой ответ");
-  d.text = cleanText(newText);
+  d.text = formatPost(newText);
   await saveDraft(env, d);
   return sendDraftText(env, d);
 }
 
 async function onButton(cq, env) {
   const chatId = cq.message.chat.id;
-  const [act, id] = String(cq.data || "").split(":");
+  const msgId = cq.message.message_id;
+  const [act, id, arg] = String(cq.data || "").split(":");
 
   if (act === "regen") {
     const old = await getDraft(env, id);
+    await setKeyboard(env, chatId, msgId, null);
     await send(env, chatId, "⏳ Делаю другой пост…");
     return generate(env, 1, old && old.topic);
   }
 
   const d = await getDraft(env, id);
-  if (!d) return send(env, chatId, "Этот черновик уже не найден (старше 7 дней?). /new — сделать новые посты.");
+  if (!d) return send(env, chatId, "Этот черновик уже не найден (старше 7 дней). /new — сделать новые посты.");
 
-  if (act === "ok") {
-    if (d.status === "published") return send(env, chatId, "Этот пост уже опубликован ✅");
-    if (d.status === "publishing") return send(env, chatId, "Уже публикую, подожди пару секунд…");
+  if (act === "ok" || act === "at") {
+    if (d.status === "published" || d.status === "scheduled") {
+      return send(env, chatId, d.status === "published" ? "Этот пост уже опубликован ✅" : "Этот пост уже запланирован 🕒");
+    }
     if (!d.file_id) return send(env, chatId, "У поста нет фото — нажми «🖼 Другое фото» или пришли своё через «✏️ Правка».");
-    d.status = "publishing";
-    await saveDraft(env, d);
+    let when = null;
+    if (act === "at") {
+      when = parseInt(arg, 10);
+      if (!Number.isFinite(when) || when * 1000 < Date.now() + 5 * 60 * 1000) {
+        return send(env, chatId, "Это время уже прошло — нажми «🕒 Отложить» ещё раз и выбери другое.");
+      }
+    }
     try {
-      const postId = await publishToVk(env, d);
-      d.status = "published";
+      const postId = await publishToVk(env, d, when);
+      d.status = when ? "scheduled" : "published";
       d.vk_post = postId;
+      d.publish_at = when;
       await saveDraft(env, d);
-      return send(env, chatId, `✅ Опубликовано!\nhttps://vk.com/wall-${groupId(env)}_${postId}`);
+      if (when) {
+        await setKeyboard(env, chatId, msgId, null);
+        return send(env, chatId, `🕒 Запланировано на ${fmtSlot(when)} (МСК). Пост появится в группе сам.\nОтложенные записи видно в группе: Записи → Отложенные.`);
+      }
+      const link = `https://vk.com/wall-${groupId(env)}_${postId}`;
+      await setKeyboard(env, chatId, msgId, { inline_keyboard: [[{ text: "👀 Открыть пост в ВК", url: link }]] });
+      return send(env, chatId, `✅ Опубликовано (текст + фото)!\n${link}`);
     } catch (e) {
-      d.status = "draft";
-      await saveDraft(env, d);
-      return send(env, chatId, `⚠️ Не получилось опубликовать: ${short(e.message, 300)}\n\nЧерновик сохранён — можно нажать «✅ Опубликовать» ещё раз.`);
+      return send(env, chatId, `⚠️ Не получилось опубликовать: ${short(e.message, 300)}\n\nЧерновик сохранён — можно попробовать ещё раз.`);
     }
   }
 
+  if (act === "when") {
+    const slots = nextSlots(4);
+    return tg(env, "sendMessage", {
+      chat_id: chatId,
+      text: `🕒 Когда опубликовать «${d.topic}»?`,
+      reply_markup: {
+        inline_keyboard: [
+          ...slots.map((t) => [{ text: fmtSlot(t), callback_data: `at:${d.id}:${t}` }]),
+        ],
+      },
+    });
+  }
+
   if (act === "edit") {
-    await env.DB.put("awaiting", id, { expirationTtl: DRAFT_TTL });
+    await env.DB.put("awaiting", id, { expirationTtl: 60 * 60 * 24 });
     return send(
       env,
       chatId,
-      `✏️ Правка поста «${d.topic}».\n\nНапиши, что изменить в тексте — перепишу.\nНачни с «фото:», чтобы перерисовать картинку (можно с пожеланиями, например «фото: больше растений»).\nИли просто пришли своё фото.\n/cancel — отмена.`
+      `✏️ Правка поста «${d.topic}».\n\nНапиши, что изменить в тексте — перепишу.\nНачни с «фото:», чтобы перерисовать картинку (например «фото: больше растений»).\nИли просто пришли своё фото.\n/cancel — отмена.`
     );
   }
 
@@ -292,6 +383,7 @@ async function onButton(cq, env) {
     d.status = "rejected";
     await saveDraft(env, d);
     if ((await env.DB.get("awaiting")) === id) await env.DB.delete("awaiting");
+    await setKeyboard(env, chatId, msgId, null);
     return tg(env, "sendMessage", {
       chat_id: chatId,
       text: `❌ Пост «${d.topic}» отклонён.`,
@@ -300,42 +392,85 @@ async function onButton(cq, env) {
   }
 }
 
+async function sendStatus(env, chatId) {
+  const lines = ["🔎 Проверка:"];
+  lines.push(env.GEMINI_API_KEY ? "✅ Ключ Gemini задан" : "❌ Нет ключа Gemini");
+  lines.push(env.AI ? "✅ Генерация картинок подключена" : "❌ Нет Workers AI");
+  lines.push(env.JOBS ? "✅ Очередь задач подключена" : "⚠️ Нет очереди — длинные задачи могут обрываться");
+  try {
+    await vkToken(env);
+    const g = await vk(env, "groups.getById", { group_id: groupId(env) });
+    const grp = (g.groups || g)[0] || {};
+    lines.push(`✅ ВКонтакте подключён, группа: ${grp.name || groupId(env)}`);
+  } catch (e) {
+    lines.push(`❌ ВКонтакте: ${short(e.message, 150)}`);
+  }
+  lines.push("⏰ Утренние посты: каждый день в 07:00 МСК");
+  return send(env, chatId, lines.join("\n"));
+}
+
+async function sendVkLogin(env, chatId) {
+  if (!env.VK_CLIENT_ID) return send(env, chatId, "Сначала нужно задать VK_CLIENT_ID в настройках воркера.");
+  const origin = await env.DB.get("origin");
+  if (!origin) return send(env, chatId, "Сначала открой /setup воркера.");
+  return tg(env, "sendMessage", {
+    chat_id: chatId,
+    text: "Нажми, чтобы подключить ВКонтакте. Войди аккаунтом, который является руководителем группы:",
+    reply_markup: { inline_keyboard: [[{ text: "🔑 Войти через VK ID", url: `${origin}/vk-login?key=${env.WEBHOOK_SECRET}` }]] },
+  });
+}
+
 // ---------- Генерация ----------
 
-async function generate(env, count, avoidTopic) {
+async function generate(env, count, avoidTopic, theme) {
   const topics = await getJSON(env, "topics", []);
   const today = new Date().toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow", weekday: "long", day: "numeric", month: "long" });
-  const raw = await gemini(env, {
+  const raw = await llm(env, {
     system:
       STYLE_GUIDE +
       `\n\nФОРМАТ ОТВЕТА — строго JSON:
-{"posts":[{"topic":"короткая тема (рубрика: тема)","text":"готовый текст поста","image_prompt":"English prompt for the photo"}]}
-- text полностью готов к публикации, без markdown и хэштегов.
+{"posts":[{"topic":"Рубрика: короткая тема","text":"готовый текст поста","image_prompt":"English prompt for the photo"}]}
+- text полностью готов к публикации, переносы строк — через \\n, между абзацами пустая строка (\\n\\n).
 - image_prompt — на английском, 1–2 предложения: что именно в кадре (предмет или сцена из поста). Без текста и надписей в кадре.`,
     user:
-      `Сегодня ${today}. Напиши ${count} ${count === 1 ? "пост" : "поста"} на разные темы из разных рубрик.` +
-      (topics.length ? `\nНЕ повторяй недавние темы: ${topics.slice(-30).join("; ")}.` : "") +
+      `Сегодня ${today}. Учитывай сезон. Напиши ${count} ${count === 1 ? "пост" : "поста"}` +
+      (theme ? ` на тему: «${theme}».` : " на разные темы из разных рубрик.") +
+      (topics.length ? `\nНЕ повторяй недавние темы: ${topics.slice(-40).join("; ")}.` : "") +
       (avoidTopic ? `\nТема «${avoidTopic}» была отклонена — возьми совсем другую.` : ""),
     json: true,
     temperature: 0.95,
   });
-  const posts = parsePosts(raw).slice(0, count);
-  if (!posts.length) throw new Error("Gemini вернул не JSON: " + short(raw, 200));
+  const posts = parsePosts(raw).filter((p) => p && p.text).slice(0, count);
+  if (!posts.length) throw new Error("нейросеть вернула пустой ответ: " + short(raw, 150));
 
   for (let i = 0; i < posts.length; i++) {
     const p = posts[i];
-    const d = {
-      id: Date.now().toString(36) + i,
-      topic: short(String(p.topic || "Пост"), 80),
-      text: cleanText(String(p.text || "")),
-      image_prompt: String(p.image_prompt || p.topic || "cozy home"),
-      file_id: null,
-      status: "draft",
-    };
-    topics.push(d.topic);
-    await saveDraft(env, d);
-    await sendPhotoForDraft(env, d, `🖼 Пост ${i + 1}/${posts.length} · ${d.topic}`);
-    await sendDraftText(env, d);
+    try {
+      let text = formatPost(String(p.text));
+      if (text.length < MIN_LEN || text.length > MAX_LEN) {
+        // Автоматически подгоняем длину под стиль группы
+        const fixed = await llm(env, {
+          system: STYLE_GUIDE + "\n\nВерни ТОЛЬКО исправленный текст поста, без пояснений.",
+          user: `Этот пост ${text.length < MIN_LEN ? "слишком короткий" : "слишком длинный"} (${text.length} символов). Перепиши его на 700–1000 символов, сохрани тему и стиль:\n---\n${text}`,
+          temperature: 0.6,
+        }).catch(() => null);
+        if (fixed) text = formatPost(fixed);
+      }
+      const d = {
+        id: Date.now().toString(36) + i,
+        topic: short(String(p.topic || "Пост").replace(/\s+/g, " "), 80),
+        text,
+        image_prompt: short(String(p.image_prompt || p.topic || "cozy home interior"), 800),
+        file_id: null,
+        status: "draft",
+      };
+      topics.push(d.topic);
+      await saveDraft(env, d);
+      await sendPhotoForDraft(env, d, `🖼 ${posts.length > 1 ? `Пост ${i + 1}/${posts.length} · ` : ""}${d.topic}`);
+      await sendDraftText(env, d);
+    } catch (e) {
+      await notifyError(env, `Пост ${i + 1} не получился`, e);
+    }
   }
   await env.DB.put("topics", JSON.stringify(topics.slice(-60)));
 }
@@ -356,17 +491,33 @@ async function sendPhotoForDraft(env, d, caption) {
   }
   const form = new FormData();
   form.append("chat_id", String(env.ADMIN_ID));
-  form.append("caption", caption);
+  form.append("caption", short(caption, 1000));
   form.append("photo", new Blob([bytes], { type: "image/jpeg" }), "photo.jpg");
-  const r = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/sendPhoto`, { method: "POST", body: form });
+  const r = await fetchT(`https://api.telegram.org/bot${env.BOT_TOKEN}/sendPhoto`, { method: "POST", body: form }, 60000);
   const j = await r.json().catch(() => ({}));
   const photos = (j.result && j.result.photo) || [];
   if (photos.length) {
     d.file_id = photos[photos.length - 1].file_id;
     await saveDraft(env, d);
   } else {
-    console.log("sendPhoto failed:", j.description);
+    await send(env, env.ADMIN_ID, `⚠️ Telegram не принял фото (${short(j.description || "ошибка", 100)}). Нажми «🖼 Другое фото».`);
   }
+}
+
+function draftKeyboard(d) {
+  return {
+    inline_keyboard: [
+      [
+        { text: "✅ Опубликовать", callback_data: "ok:" + d.id },
+        { text: "🕒 Отложить", callback_data: "when:" + d.id },
+      ],
+      [
+        { text: "✏️ Правка", callback_data: "edit:" + d.id },
+        { text: "🖼 Другое фото", callback_data: "img:" + d.id },
+      ],
+      [{ text: "❌ Отклонить", callback_data: "no:" + d.id }],
+    ],
+  };
 }
 
 function sendDraftText(env, d, header) {
@@ -374,56 +525,93 @@ function sendDraftText(env, d, header) {
     chat_id: env.ADMIN_ID,
     text: short((header ? header + "\n\n" : "") + d.text, 4000),
     disable_web_page_preview: true,
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: "✅ Опубликовать", callback_data: "ok:" + d.id }],
-        [
-          { text: "✏️ Правка", callback_data: "edit:" + d.id },
-          { text: "🖼 Другое фото", callback_data: "img:" + d.id },
-        ],
-        [{ text: "❌ Отклонить", callback_data: "no:" + d.id }],
-      ],
-    },
+    reply_markup: draftKeyboard(d),
+  });
+}
+
+function setKeyboard(env, chatId, messageId, markup) {
+  if (!messageId) return null;
+  return tg(env, "editMessageReplyMarkup", {
+    chat_id: chatId,
+    message_id: messageId,
+    reply_markup: markup || { inline_keyboard: [] },
   });
 }
 
 async function makeImage(env, prompt) {
   if (!env.AI) throw new Error("нет привязки Workers AI (AI)");
-  const res = await env.AI.run(IMAGE_MODEL, { prompt: short(prompt, 1500) + PHOTO_SUFFIX, steps: 8 });
-  if (!res || !res.image) throw new Error("Workers AI не вернул картинку");
-  const bin = atob(res.image);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes;
+  let lastErr;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await env.AI.run(IMAGE_MODEL, { prompt: short(prompt, 1500) + PHOTO_SUFFIX, steps: 8 });
+      if (!res || !res.image) throw new Error("Workers AI не вернул картинку");
+      const bin = atob(res.image);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return bytes;
+    } catch (e) {
+      lastErr = e;
+      await sleep(2000);
+    }
+  }
+  throw lastErr;
 }
 
 async function translatePrompt(env, oldPrompt, wish) {
-  const out = await gemini(env, {
+  const out = await llm(env, {
     system: "You edit image-generation prompts. Reply with ONLY the new English prompt, 1–2 sentences, no quotes.",
-    user: `Current prompt: ${oldPrompt}\nUser wishes (Russian): ${wish}`,
+    user: `Current prompt: ${oldPrompt}\nUser wishes (Russian): ${short(wish, 500)}`,
     temperature: 0.4,
   }).catch(() => null);
-  return out ? short(out.replace(/^["']|["']$/g, ""), 1000) : `${oldPrompt}. ${wish}`;
+  return out ? short(out.replace(/^["']|["']$/g, ""), 800) : short(`${oldPrompt}. ${wish}`, 800);
 }
 
 function parsePosts(raw) {
   if (!raw) return [];
-  let s = raw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  const s = String(raw).replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  const pick = (j) => (Array.isArray(j) ? j : j && Array.isArray(j.posts) ? j.posts : j && j.text ? [j] : []);
   try {
-    const j = JSON.parse(s);
-    return Array.isArray(j) ? j : j.posts || [];
+    return pick(JSON.parse(s));
   } catch {
     const m = s.match(/\{[\s\S]*\}/);
     try {
-      return m ? JSON.parse(m[0]).posts || [] : [];
+      return m ? pick(JSON.parse(m[0])) : [];
     } catch {
       return [];
     }
   }
 }
 
-async function gemini(env, { system, user, json = false, temperature = 0.8 }) {
-  // Если модель перегружена (503/429) — пробуем следующую; в конце — бесплатная модель Cloudflare.
+// Приводим текст к стилю группы: без markdown и хэштегов, абзацы через пустую строку, пункты списка — подряд.
+function formatPost(s) {
+  let t = String(s || "")
+    .replace(/\r/g, "")
+    .replace(/^```\w*\s*|```$/g, "")
+    .replace(/^\s*---\s*$/gm, "")
+    .replace(/\*\*|__/g, "")
+    .replace(/^#+\s*/gm, "")
+    .replace(/(^|\s)#[\wа-яё_]+/gi, "$1")
+    .replace(/^["«]|["»]$/g, "")
+    .trim();
+  const isItem = (l) => /^(\p{Extended_Pictographic}|[•\-–]|\d+[.)])/u.test(l) && l.length < 220;
+  const lines = t.split("\n").map((l) => l.replace(/[ \t]{2,}/g, " ").replace(/[ \t]+$/g, "").replace(/^\*\s+/, "• "));
+  const out = [];
+  for (const line of lines) {
+    if (!line.trim()) {
+      if (out.length && out[out.length - 1] !== "") out.push("");
+      continue;
+    }
+    const prev = out[out.length - 1];
+    if (prev !== undefined && prev !== "" && !(isItem(prev) && isItem(line))) out.push("");
+    out.push(line);
+  }
+  return short(out.join("\n").replace(/\n{3,}/g, "\n\n").trim(), 3800);
+}
+
+// ---------- Нейросети ----------
+
+async function llm(env, { system, user, json = false, temperature = 0.8 }) {
+  // Gemini (несколько моделей по очереди) → нейросеть Cloudflare как запасной вариант
   const primary = /^[\w.-]{1,64}$/.test(env.GEMINI_MODEL || "") ? env.GEMINI_MODEL : "gemini-flash-latest";
   const models = [...new Set([primary, "gemini-flash-lite-latest", "gemini-2.5-flash", "gemini-2.5-flash-lite"])];
   const errors = [];
@@ -436,14 +624,18 @@ async function gemini(env, { system, user, json = false, temperature = 0.8 }) {
       };
       if (json) body.generationConfig.responseMimeType = "application/json";
       try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-          method: "POST",
-          headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
-          body: JSON.stringify(body),
-        });
+        const res = await fetchT(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
+            body: JSON.stringify(body),
+          },
+          90000
+        );
         if (!res.ok) {
           errors.push(`${model}: ${res.status}`);
-          if (res.status === 400 || res.status === 401 || res.status === 403) break; // ключ неверный — дальше смысла нет
+          if (res.status === 400 || res.status === 401 || res.status === 403) break; // ключ неверный — дальше бесполезно
           continue;
         }
         const data = await res.json();
@@ -473,26 +665,45 @@ async function gemini(env, { system, user, json = false, temperature = 0.8 }) {
       errors.push(`Cloudflare AI: ${e.message}`);
     }
   }
-  throw new Error("нейросети сейчас недоступны, попробуй /new через пару минут (" + errors.join("; ") + ")");
+  throw new Error("нейросети сейчас недоступны, попробуй через пару минут (" + errors.join("; ") + ")");
 }
 
 // ---------- ВКонтакте ----------
 
-async function vk(env, method, params) {
+async function vk(env, method, params, retried) {
   const body = new URLSearchParams({ ...params, access_token: await vkToken(env), v: VK_V });
-  const r = await fetch(`https://api.vk.com/method/${method}`, { method: "POST", body });
+  const r = await fetchT(`https://api.vk.com/method/${method}`, { method: "POST", body }, 30000);
   const j = await r.json();
-  if (j.error) throw new Error(`ВК ${method}: ${j.error.error_msg} (код ${j.error.error_code})`);
+  if (j.error) {
+    const code = j.error.error_code;
+    // 5 — токен недействителен: один раз пробуем обновить вход и повторить
+    if (code === 5 && !retried && (await env.DB.get("vk_auth"))) {
+      await vkToken(env, true);
+      return vk(env, method, params, true);
+    }
+    // 6/9/10 — слишком часто / временная ошибка ВК: короткая пауза и повтор
+    if ((code === 6 || code === 10) && !retried) {
+      await sleep(1500);
+      return vk(env, method, params, true);
+    }
+    const hints = {
+      5: " — войди заново: /vk",
+      15: " — у аккаунта нет прав в группе (нужен редактор или администратор)",
+      214: " — публикация в группе запрещена для этого аккаунта",
+      219: " — ВК посчитал пост рекламным/спамом",
+    };
+    throw new Error(`ВК ${method}: ${j.error.error_msg} (код ${code})${hints[code] || ""}`);
+  }
   return j.response;
 }
 
-async function publishToVk(env, d) {
+async function publishToVk(env, d, publishAt) {
   const gid = groupId(env);
 
   // 1) скачиваем фото из Telegram
   const f = await tg(env, "getFile", { file_id: d.file_id });
   if (!f.ok) throw new Error("Telegram getFile: " + (f.description || "ошибка"));
-  const imgRes = await fetch(`https://api.telegram.org/file/bot${env.BOT_TOKEN}/${f.result.file_path}`);
+  const imgRes = await fetchT(`https://api.telegram.org/file/bot${env.BOT_TOKEN}/${f.result.file_path}`, {}, 30000);
   if (!imgRes.ok) throw new Error("не скачалось фото из Telegram");
   const img = await imgRes.arrayBuffer();
 
@@ -500,18 +711,22 @@ async function publishToVk(env, d) {
   const server = await vk(env, "photos.getWallUploadServer", { group_id: gid });
   const form = new FormData();
   form.append("photo", new Blob([img], { type: "image/jpeg" }), "photo.jpg");
-  const up = await (await fetch(server.upload_url, { method: "POST", body: form })).json();
+  const upRes = await fetchT(server.upload_url, { method: "POST", body: form }, 60000);
+  const up = await upRes.json().catch(() => ({}));
   if (!up.photo || up.photo === "[]") throw new Error("ВК не принял фото при загрузке");
   const saved = await vk(env, "photos.saveWallPhoto", { group_id: gid, server: up.server, photo: up.photo, hash: up.hash });
   const ph = saved[0];
 
-  // 3) публикуем
-  const post = await vk(env, "wall.post", {
+  // 3) публикуем (или откладываем) — текст + фото от имени группы
+  const params = {
     owner_id: `-${gid}`,
     from_group: 1,
     message: d.text,
     attachments: `photo${ph.owner_id}_${ph.id}`,
-  });
+    guid: d.id + (publishAt ? "_" + publishAt : ""), // защита ВК от дублей при повторном нажатии
+  };
+  if (publishAt) params.publish_date = publishAt;
+  const post = await vk(env, "wall.post", params);
   return post.post_id;
 }
 
@@ -558,11 +773,15 @@ async function vkFinishLogin(env, url) {
 }
 
 async function vkIdToken(env, params) {
-  const r = await fetch(`${VK_ID}/oauth2/auth`, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ client_id: String(env.VK_CLIENT_ID), ...params }),
-  });
+  const r = await fetchT(
+    `${VK_ID}/oauth2/auth`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: String(env.VK_CLIENT_ID), ...params }),
+    },
+    30000
+  );
   const j = await r.json().catch(() => ({}));
   if (!j.access_token) throw new Error("VK ID: " + (j.error_description || j.error || `HTTP ${r.status}`));
   return j;
@@ -581,14 +800,14 @@ function saveVkAuth(env, tok, deviceId) {
   );
 }
 
-async function vkToken(env) {
+async function vkToken(env, force) {
   const a = await getJSON(env, "vk_auth", null);
   if (!a) {
     if (env.VK_TOKEN) return env.VK_TOKEN;
     throw new Error("ВКонтакте не подключён — отправь боту /vk и войди через VK ID");
   }
-  if (Date.now() < a.expires_at - 120000) return a.access_token;
-  if (!a.refresh_token) throw new Error("токен ВК истёк — отправь боту /vk и войди заново");
+  if (!force && Date.now() < a.expires_at - 120000) return a.access_token;
+  if (!a.refresh_token) throw new Error("вход в ВК истёк — отправь боту /vk и войди заново");
   try {
     const tok = await vkIdToken(env, {
       grant_type: "refresh_token",
@@ -619,10 +838,37 @@ function htmlPage(title, text, status = 200) {
   );
 }
 
+// ---------- Время для отложенных постов ----------
+
+// Ближайшие слоты (unix-секунды) по МСК, не раньше чем через 20 минут
+function nextSlots(n) {
+  const out = [];
+  const now = Date.now();
+  const msk = new Date(now + MSK_OFFSET);
+  for (let day = 0; day < 3 && out.length < n; day++) {
+    for (const h of SLOT_HOURS) {
+      const t = Date.UTC(msk.getUTCFullYear(), msk.getUTCMonth(), msk.getUTCDate() + day, h, 0, 0) - MSK_OFFSET;
+      if (t > now + 20 * 60 * 1000) out.push(Math.floor(t / 1000));
+      if (out.length >= n) break;
+    }
+  }
+  return out;
+}
+
+function fmtSlot(unix) {
+  const d = new Date(unix * 1000 + MSK_OFFSET);
+  const today = new Date(Date.now() + MSK_OFFSET);
+  const dayDiff = Math.round(
+    (Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())) / 864e5
+  );
+  const day = dayDiff === 0 ? "Сегодня" : dayDiff === 1 ? "Завтра" : `${d.getUTCDate()}.${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  return `${day} в ${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
+}
+
 // ---------- Утилиты ----------
 
 async function getDraft(env, id) {
-  if (!id || !/^[\w]{1,40}$/.test(id)) return null;
+  if (!id || !/^\w{1,40}$/.test(id)) return null;
   return getJSON(env, "d:" + id, null);
 }
 
@@ -639,14 +885,40 @@ async function getJSON(env, key, fallback) {
   }
 }
 
+// Защита от повторной обработки одного и того же апдейта (Telegram иногда присылает повторно)
+async function alreadyHandled(env, updateId) {
+  if (typeof updateId !== "number") return false;
+  const key = "u:" + updateId;
+  if (await env.DB.get(key)) return true;
+  await env.DB.put(key, "1", { expirationTtl: 3600 });
+  return false;
+}
+
+async function fetchT(url, opt = {}, ms = 30000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...opt, signal: controller.signal });
+  } catch (e) {
+    throw new Error(controller.signal.aborted ? `таймаут ${Math.round(ms / 1000)} с` : e.message);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function tg(env, method, body) {
   try {
-    const r = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/${method}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    return await r.json();
+    const r = await fetchT(
+      `https://api.telegram.org/bot${env.BOT_TOKEN}/${method}`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
+      30000
+    );
+    const j = await r.json();
+    if (!j.ok && j.error_code === 429 && j.parameters && j.parameters.retry_after && !body.__retried) {
+      await sleep(Math.min(j.parameters.retry_after, 10) * 1000);
+      return tg(env, method, { ...body, __retried: true });
+    }
+    return j;
   } catch (e) {
     console.log(`telegram ${method} failed:`, (e && e.message) || e);
     return { ok: false, description: "network error" };
@@ -692,11 +964,11 @@ function isDuplicate(updateId) {
   return false;
 }
 
-function short(s, n) {
-  s = String(s || "");
-  return s.length > n ? s.slice(0, n - 1) + "…" : s;
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
-function cleanText(s) {
-  return short(String(s).replace(/\*\*/g, "").replace(/^#+\s*/gm, "").replace(/#[\wа-яё]+/gi, "").trim(), 3800);
+function short(s, n) {
+  s = String(s == null ? "" : s);
+  return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
