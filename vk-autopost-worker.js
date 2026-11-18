@@ -9,7 +9,7 @@
 // Переменные (Settings → Variables and Secrets):
 //   BOT_TOKEN       — токен бота от @BotFather (secret)
 //   WEBHOOK_SECRET  — 8–256 символов: латиница, цифры, _ и - (secret)
-//   ADMIN_ID        — твой числовой Telegram ID (бот покажет его на /start)
+//   ADMIN_ID        — Telegram ID владельцев через запятую (бот покажет ID на /start), напр. 111,222
 //   GEMINI_API_KEY  — ключ Gemini API (secret)
 //   GEMINI_MODEL    — необязательно, по умолчанию gemini-flash-latest
 //   VK_CLIENT_ID    — ID приложения VK ID; Redirect URL в нём: https://<worker>/vk-callback
@@ -132,7 +132,7 @@ export default {
     if (request.method === "GET" && url.pathname === "/vk-callback") {
       try {
         await vkFinishLogin(env, url);
-        if (env.ADMIN_ID) await send(env, env.ADMIN_ID, "✅ ВКонтакте подключён — теперь посты публикуются в группу.");
+        await broadcast(env, "✅ ВКонтакте подключён — теперь посты публикуются в группу.");
         return htmlPage("✅ ВКонтакте подключён", "Можно закрыть эту вкладку и вернуться в Telegram.");
       } catch (e) {
         return htmlPage("⚠️ Не получилось", short(e.message, 300), 400);
@@ -152,7 +152,7 @@ export default {
       if (isDuplicate(update.update_id)) return new Response("ok");
       // Чужие апдейты отбрасываем сразу, не тратя очередь
       const chatId = updateChatId(update);
-      if (env.ADMIN_ID && String(chatId) !== String(env.ADMIN_ID).trim()) {
+      if (admins(env).length && !isAdmin(env, chatId)) {
         if (update.callback_query) ctx.waitUntil(tg(env, "answerCallbackQuery", { callback_query_id: update.callback_query.id }));
         return new Response("ok");
       }
@@ -195,7 +195,7 @@ async function morningRun(env) {
     try {
       await vkToken(env, true);
     } catch (e) {
-      await send(env, env.ADMIN_ID, `⚠️ Вход в ВК слетел: ${short(e.message, 200)}\nОтправь /vk и войди заново, иначе публикация не сработает.`);
+      await broadcast(env, `⚠️ Вход в ВК слетел: ${short(e.message, 200)}\nОтправь /vk и войди заново, иначе публикация не сработает.`);
     }
   }
   // До 3 попыток с паузой, если нейросети перегружены
@@ -243,11 +243,12 @@ async function handleUpdate(update, env) {
   const m = update.message;
   const chatId = updateChatId(update);
 
-  if (!env.ADMIN_ID) {
+  if (!admins(env).length) {
     if (chatId) await send(env, chatId, `Твой Telegram ID: ${chatId}\nВпиши его в переменную ADMIN_ID воркера.`);
     return;
   }
-  if (String(chatId) !== String(env.ADMIN_ID).trim()) return; // бот только для владельца
+  if (!isAdmin(env, chatId)) return; // бот только для владельцев
+  const AW = "awaiting:" + chatId; // у каждого владельца своя правка
 
   if (cq) return onButton(cq, env);
   if (!m) return;
@@ -259,12 +260,12 @@ async function handleUpdate(update, env) {
     const args = (cmd[2] || "").trim();
     if (name === "start" || name === "help") return send(env, chatId, HELP_TEXT);
     if (name === "new") {
-      await env.DB.delete("awaiting");
+      await env.DB.delete(AW);
       await send(env, chatId, args ? `⏳ Пишу пост на тему «${short(args, 100)}»…` : "⏳ Пишу посты и рисую фото, это займёт около минуты…");
       return generate(env, args ? 1 : postsPerDay(env), null, short(args, 300));
     }
     if (name === "cancel") {
-      await env.DB.delete("awaiting");
+      await env.DB.delete(AW);
       return send(env, chatId, "Ок, правку отменил.");
     }
     if (name === "status") return sendStatus(env, chatId);
@@ -272,18 +273,18 @@ async function handleUpdate(update, env) {
     return send(env, chatId, "Не знаю такую команду. /start — список команд.");
   }
 
-  const id = await env.DB.get("awaiting");
+  const id = await env.DB.get(AW);
   const d = id && (await getDraft(env, id));
   if (!d) return send(env, chatId, "Нажми кнопку под постом или отправь /new, чтобы сделать новые посты.");
 
   if (m.photo && m.photo.length) {
     d.file_id = m.photo[m.photo.length - 1].file_id;
     await saveDraft(env, d);
-    await env.DB.delete("awaiting");
+    await env.DB.delete(AW);
     return sendDraftText(env, d, "📷 Фото заменил на твоё. Вот пост:");
   }
   if (!text) return send(env, chatId, "Пришли текст правки или фото.");
-  await env.DB.delete("awaiting");
+  await env.DB.delete(AW);
 
   const photoWish = /^фото\s*[:\-—]?\s*([\s\S]*)$/i.exec(text);
   if (photoWish) {
@@ -340,6 +341,11 @@ async function onButton(cq, env) {
       d.vk_post = postId;
       d.publish_at = when;
       await saveDraft(env, d);
+      const others = admins(env).filter((x) => x !== String(chatId));
+      const who = (cq.from && cq.from.first_name) || "Другой владелец";
+      for (const o of others) {
+        await send(env, o, when ? `🕒 ${who} запланировал пост «${d.topic}» на ${fmtSlot(when)} (МСК).` : `✅ ${who} опубликовал пост «${d.topic}»:\nhttps://vk.com/wall-${groupId(env)}_${postId}`);
+      }
       if (when) {
         await setKeyboard(env, chatId, msgId, null);
         return send(env, chatId, `🕒 Запланировано на ${fmtSlot(when)} (МСК). Пост появится в группе сам.\nОтложенные записи видно в группе: Записи → Отложенные.`);
@@ -366,7 +372,7 @@ async function onButton(cq, env) {
   }
 
   if (act === "edit") {
-    await env.DB.put("awaiting", id, { expirationTtl: 60 * 60 * 24 });
+    await env.DB.put("awaiting:" + chatId, id, { expirationTtl: 60 * 60 * 24 });
     return send(
       env,
       chatId,
@@ -382,7 +388,7 @@ async function onButton(cq, env) {
   if (act === "no") {
     d.status = "rejected";
     await saveDraft(env, d);
-    if ((await env.DB.get("awaiting")) === id) await env.DB.delete("awaiting");
+    for (const a of admins(env)) if ((await env.DB.get("awaiting:" + a)) === id) await env.DB.delete("awaiting:" + a);
     await setKeyboard(env, chatId, msgId, null);
     return tg(env, "sendMessage", {
       chat_id: chatId,
@@ -486,11 +492,12 @@ async function sendPhotoForDraft(env, d, caption) {
     bytes = await makeImage(env, d.image_prompt);
   } catch (e) {
     console.log("image error:", e && e.message);
-    await send(env, env.ADMIN_ID, `⚠️ Не получилось нарисовать фото (${short(e.message, 150)}). Нажми «🖼 Другое фото» или пришли своё через «✏️ Правка».`);
+    await broadcast(env, `⚠️ Не получилось нарисовать фото (${short(e.message, 150)}). Нажми «🖼 Другое фото» или пришли своё через «✏️ Правка».`);
     return;
   }
+  const [first, ...others] = admins(env);
   const form = new FormData();
-  form.append("chat_id", String(env.ADMIN_ID));
+  form.append("chat_id", String(first));
   form.append("caption", short(caption, 1000));
   form.append("photo", new Blob([bytes], { type: "image/jpeg" }), "photo.jpg");
   const r = await fetchT(`https://api.telegram.org/bot${env.BOT_TOKEN}/sendPhoto`, { method: "POST", body: form }, 60000);
@@ -499,8 +506,9 @@ async function sendPhotoForDraft(env, d, caption) {
   if (photos.length) {
     d.file_id = photos[photos.length - 1].file_id;
     await saveDraft(env, d);
+    for (const a of others) await tg(env, "sendPhoto", { chat_id: a, photo: d.file_id, caption: short(caption, 1000) });
   } else {
-    await send(env, env.ADMIN_ID, `⚠️ Telegram не принял фото (${short(j.description || "ошибка", 100)}). Нажми «🖼 Другое фото».`);
+    await broadcast(env, `⚠️ Telegram не принял фото (${short(j.description || "ошибка", 100)}). Нажми «🖼 Другое фото».`);
   }
 }
 
@@ -520,13 +528,15 @@ function draftKeyboard(d) {
   };
 }
 
-function sendDraftText(env, d, header) {
-  return tg(env, "sendMessage", {
-    chat_id: env.ADMIN_ID,
-    text: short((header ? header + "\n\n" : "") + d.text, 4000),
-    disable_web_page_preview: true,
-    reply_markup: draftKeyboard(d),
-  });
+async function sendDraftText(env, d, header) {
+  for (const a of admins(env)) {
+    await tg(env, "sendMessage", {
+      chat_id: a,
+      text: short((header ? header + "\n\n" : "") + d.text, 4000),
+      disable_web_page_preview: true,
+      reply_markup: draftKeyboard(d),
+    });
+  }
 }
 
 function setKeyboard(env, chatId, messageId, markup) {
@@ -931,7 +941,19 @@ function send(env, chatId, text) {
 
 async function notifyError(env, title, e) {
   console.log(title, (e && e.stack) || e);
-  if (env.ADMIN_ID) await send(env, env.ADMIN_ID, `⚠️ ${title}: ${short((e && e.message) || String(e), 300)}`).catch(() => {});
+  await broadcast(env, `⚠️ ${title}: ${short((e && e.message) || String(e), 300)}`).catch(() => {});
+}
+
+function admins(env) {
+  return String(env.ADMIN_ID || "").split(/[,;\s]+/).map((x) => x.trim()).filter((x) => /^-?\d+$/.test(x));
+}
+
+function isAdmin(env, chatId) {
+  return chatId != null && admins(env).includes(String(chatId));
+}
+
+async function broadcast(env, text) {
+  for (const a of admins(env)) await send(env, a, text);
 }
 
 function groupId(env) {
