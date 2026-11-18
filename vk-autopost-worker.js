@@ -123,10 +123,15 @@ export default {
       return Response.json({ webhook, checks: selfCheck(env) });
     }
 
+    if (request.method === "GET" && url.pathname === "/vk-test") {
+      if (!safeEqual(url.searchParams.get("key"), env.WEBHOOK_SECRET)) return new Response("forbidden", { status: 403 });
+      return Response.json(await vkSelfTest(env));
+    }
+
     if (request.method === "GET" && url.pathname === "/vk-login") {
       if (!safeEqual(url.searchParams.get("key"), env.WEBHOOK_SECRET)) return new Response("forbidden", { status: 403 });
       if (!env.VK_CLIENT_ID) return new Response("Не задан VK_CLIENT_ID", { status: 500 });
-      const flow = url.searchParams.get("flow") || env.VK_FLOW || "classic";
+      const flow = url.searchParams.get("flow") || env.VK_FLOW || "vkid";
       return Response.redirect(flow === "vkid" ? await vkLoginUrl(env, url.origin) : await vkClassicUrl(env, url.origin), 302);
     }
 
@@ -418,13 +423,35 @@ async function onButton(cq, env) {
   }
 }
 
+// Для входа VK ID: свежий токен прямо перед серией запросов (он привязан к IP, с которого получен)
+async function freshVkToken(env) {
+  const a = await getJSON(env, "vk_auth", null);
+  if (a && !a.classic && a.refresh_token) await vkToken(env, true);
+}
+
+async function vkSelfTest(env) {
+  const steps = [];
+  try {
+    await freshVkToken(env);
+    steps.push("refresh ok");
+    const g = await vk(env, "groups.getById", { group_id: groupId(env) });
+    steps.push("group ok: " + (((g.groups || g)[0] || {}).name || "?"));
+    const srv = await vk(env, "photos.getWallUploadServer", { group_id: groupId(env) });
+    steps.push("upload server ok: " + Boolean(srv.upload_url));
+    return { ok: true, steps };
+  } catch (e) {
+    steps.push("ERROR: " + e.message);
+    return { ok: false, steps };
+  }
+}
+
 async function sendStatus(env, chatId) {
   const lines = ["🔎 Проверка:"];
   lines.push(env.GEMINI_API_KEY ? "✅ Ключ Gemini задан" : "❌ Нет ключа Gemini");
   lines.push(env.AI ? "✅ Генерация картинок подключена" : "❌ Нет Workers AI");
   lines.push(env.JOBS ? "✅ Очередь задач подключена" : "⚠️ Нет очереди — длинные задачи могут обрываться");
   try {
-    await vkToken(env);
+    await freshVkToken(env);
     const g = await vk(env, "groups.getById", { group_id: groupId(env) });
     const grp = (g.groups || g)[0] || {};
     await vk(env, "photos.getWallUploadServer", { group_id: groupId(env) }); // проверяем право загружать фото
@@ -701,21 +728,23 @@ async function llm(env, { system, user, json = false, temperature = 0.8 }) {
 
 // ---------- ВКонтакте ----------
 
-async function vk(env, method, params, retried) {
+async function vk(env, method, params, retried = 0) {
   const body = new URLSearchParams({ ...params, access_token: await vkToken(env), v: VK_V });
   const r = await fetchT(`https://api.vk.com/method/${method}`, { method: "POST", body }, 30000);
   const j = await r.json();
   if (j.error) {
     const code = j.error.error_code;
     // 5 — токен недействителен: один раз пробуем обновить вход и повторить
-    if (code === 5 && !retried && !/another ip/i.test(j.error.error_msg || "") && (await getJSON(env, "vk_auth", {})).refresh_token) {
+    // 5 — токен недействителен или выдан на другой IP (Cloudflare ходит с разных адресов):
+    // обновляем вход прямо сейчас — новый токен выдаётся текущему адресу — и повторяем
+    if (code === 5 && retried < 3 && (await getJSON(env, "vk_auth", {})).refresh_token) {
       await vkToken(env, true);
-      return vk(env, method, params, true);
+      return vk(env, method, params, retried + 1);
     }
     // 6/9/10 — слишком часто / временная ошибка ВК: короткая пауза и повтор
-    if ((code === 6 || code === 10) && !retried) {
+    if ((code === 6 || code === 10) && retried < 2) {
       await sleep(1500);
-      return vk(env, method, params, true);
+      return vk(env, method, params, retried + 1);
     }
     const hints = {
       5: " — войди заново: /vk",
@@ -732,6 +761,7 @@ async function vk(env, method, params, retried) {
 
 async function publishToVk(env, d, publishAt) {
   const gid = groupId(env);
+  await freshVkToken(env);
 
   // 1) скачиваем фото из Telegram
   const f = await tg(env, "getFile", { file_id: d.file_id });
