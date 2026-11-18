@@ -51,6 +51,7 @@ const PHOTO_SUFFIX =
   ", cozy realistic home photography, warm soft daylight, light wood, wicker baskets, green houseplants, knitted blanket, white ceramics, warm orange, fresh green and sunny yellow accents, magazine quality, sharp focus, no text, no letters, no logos, no watermark";
 
 const IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell";
+const FALLBACK_TEXT_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 const DRAFT_TTL = 60 * 60 * 24 * 7; // черновики живут 7 дней
 const VK_V = "5.199";
 
@@ -408,34 +409,57 @@ function parsePosts(raw) {
 }
 
 async function gemini(env, { system, user, json = false, temperature = 0.8 }) {
-  if (!env.GEMINI_API_KEY) throw new Error("не задан GEMINI_API_KEY");
-  const model = /^[\w.-]{1,64}$/.test(env.GEMINI_MODEL || "") ? env.GEMINI_MODEL : "gemini-flash-latest";
-  const body = {
-    systemInstruction: { parts: [{ text: system }] },
-    contents: [{ role: "user", parts: [{ text: user }] }],
-    generationConfig: { temperature, maxOutputTokens: 8192 },
-  };
-  if (json) body.generationConfig.responseMimeType = "application/json";
-  let lastErr;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error(`Gemini ${res.status}: ${short(await res.text(), 200)}`);
-      const data = await res.json();
-      const parts = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) || [];
-      const out = parts.filter((p) => !p.thought).map((p) => p.text || "").join("").trim();
-      if (out) return out;
-      lastErr = new Error("Gemini вернул пустой ответ");
-    } catch (e) {
-      lastErr = e;
+  // Если модель перегружена (503/429) — пробуем следующую; в конце — бесплатная модель Cloudflare.
+  const primary = /^[\w.-]{1,64}$/.test(env.GEMINI_MODEL || "") ? env.GEMINI_MODEL : "gemini-flash-latest";
+  const models = [...new Set([primary, "gemini-flash-lite-latest", "gemini-2.5-flash", "gemini-2.5-flash-lite"])];
+  const errors = [];
+  if (env.GEMINI_API_KEY) {
+    for (const model of models) {
+      const body = {
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: "user", parts: [{ text: user }] }],
+        generationConfig: { temperature, maxOutputTokens: 8192 },
+      };
+      if (json) body.generationConfig.responseMimeType = "application/json";
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          errors.push(`${model}: ${res.status}`);
+          if (res.status === 400 || res.status === 401 || res.status === 403) break; // ключ неверный — дальше смысла нет
+          continue;
+        }
+        const data = await res.json();
+        const parts = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) || [];
+        const out = parts.filter((p) => !p.thought).map((p) => p.text || "").join("").trim();
+        if (out) return out;
+        errors.push(`${model}: пустой ответ`);
+      } catch (e) {
+        errors.push(`${model}: ${e.message}`);
+      }
     }
-    await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
   }
-  throw lastErr;
+  if (env.AI) {
+    try {
+      const r = await env.AI.run(FALLBACK_TEXT_MODEL, {
+        messages: [
+          { role: "system", content: system + (json ? "\n\nОтвечай только JSON-объектом, без пояснений." : "") },
+          { role: "user", content: user },
+        ],
+        max_tokens: 4096,
+        temperature,
+      });
+      const out = typeof r.response === "string" ? r.response.trim() : r.response ? JSON.stringify(r.response) : "";
+      if (out) return out;
+      errors.push("Cloudflare AI: пустой ответ");
+    } catch (e) {
+      errors.push(`Cloudflare AI: ${e.message}`);
+    }
+  }
+  throw new Error("нейросети сейчас недоступны, попробуй /new через пару минут (" + errors.join("; ") + ")");
 }
 
 // ---------- ВКонтакте ----------
