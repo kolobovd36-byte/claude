@@ -13,6 +13,7 @@
 //   GEMINI_API_KEY  — ключ Gemini API (secret)
 //   GEMINI_MODEL    — необязательно, по умолчанию gemini-flash-latest
 //   VK_CLIENT_ID    — ID приложения VK ID; Redirect URL в нём: https://<worker>/vk-callback
+//   VK_GROUP_TOKEN  — ключ доступа сообщества (права: стена, фотографии, сообщения) — основной способ публикации (secret)
 //   VK_TOKEN        — необязательно: готовый токен ВК вместо входа через VK ID (secret)
 //   VK_GROUP_ID     — id группы без минуса, по умолчанию 243091521
 //   POSTS_PER_DAY   — необязательно, по умолчанию 2
@@ -214,7 +215,7 @@ export default {
 
 async function morningRun(env) {
   // Держим вход в ВК «живым», чтобы токен не протух без публикаций
-  const auth = await getJSON(env, "vk_auth", null);
+  const auth = env.VK_GROUP_TOKEN ? null : await getJSON(env, "vk_auth", null);
   if (auth) {
     try {
       if (auth.classic) await vk(env, "groups.getById", { group_id: groupId(env) });
@@ -431,6 +432,18 @@ async function freshVkToken(env) {
 
 async function vkSelfTest(env) {
   const steps = [];
+  if (env.VK_GROUP_TOKEN) {
+    try {
+      const perms = await vkg(env, "groups.getTokenPermissions", {});
+      steps.push("group token perms: " + ((perms.permissions || []).map((p) => p.name).join(",") || perms.mask));
+      const srv = await vkg(env, "photos.getMessagesUploadServer", {});
+      steps.push("messages upload server ok: " + Boolean(srv.upload_url));
+      return { ok: true, mode: "group", steps };
+    } catch (e) {
+      steps.push("ERROR: " + e.message);
+      return { ok: false, mode: "group", steps };
+    }
+  }
   try {
     await freshVkToken(env);
     steps.push("refresh ok, scope: " + ((await getJSON(env, "vk_auth", {})).scope || "?"));
@@ -450,6 +463,12 @@ async function sendStatus(env, chatId) {
   lines.push(env.GEMINI_API_KEY ? "✅ Ключ Gemini задан" : "❌ Нет ключа Gemini");
   lines.push(env.AI ? "✅ Генерация картинок подключена" : "❌ Нет Workers AI");
   lines.push(env.JOBS ? "✅ Очередь задач подключена" : "⚠️ Нет очереди — длинные задачи могут обрываться");
+  if (env.VK_GROUP_TOKEN) {
+    const t = await vkSelfTest(env);
+    lines.push(t.ok ? "✅ ВКонтакте: ключ сообщества работает, публикация доступна" : `❌ ВКонтакте: ${short(t.steps[t.steps.length - 1], 200)}`);
+    lines.push("⏰ Утренние посты: каждый день в 07:00 МСК");
+    return send(env, chatId, lines.join("\n"));
+  }
   try {
     await freshVkToken(env);
     const g = await vk(env, "groups.getById", { group_id: groupId(env) });
@@ -760,6 +779,7 @@ async function vk(env, method, params, retried = 0) {
 }
 
 async function publishToVk(env, d, publishAt) {
+  if (env.VK_GROUP_TOKEN) return publishWithGroupToken(env, d, publishAt);
   const gid = groupId(env);
   await freshVkToken(env);
 
@@ -790,6 +810,58 @@ async function publishToVk(env, d, publishAt) {
   };
   if (publishAt) params.publish_date = publishAt;
   const post = await vk(env, "wall.post", params);
+  return post.post_id;
+}
+
+// ---------- Публикация ключом сообщества (бессрочный, не привязан к IP) ----------
+
+async function vkg(env, method, params, retried = 0) {
+  const body = new URLSearchParams({ ...params, access_token: env.VK_GROUP_TOKEN, v: VK_V });
+  const r = await fetchT(`https://api.vk.com/method/${method}`, { method: "POST", body }, 30000);
+  const j = await r.json();
+  if (j.error) {
+    const code = j.error.error_code;
+    if ((code === 6 || code === 10) && retried < 2) {
+      await sleep(1500);
+      return vkg(env, method, params, retried + 1);
+    }
+    const hints = {
+      5: " — ключ сообщества недействителен, создай новый в настройках группы",
+      15: " — у ключа сообщества нет нужного права (нужны: стена, фотографии, сообщения)",
+      27: " — этот метод недоступен с ключом сообщества",
+    };
+    throw new Error(`ВК ${method}: ${j.error.error_msg} (код ${code})${hints[code] || ""}`);
+  }
+  return j.response;
+}
+
+async function publishWithGroupToken(env, d, publishAt) {
+  const gid = groupId(env);
+  const f = await tg(env, "getFile", { file_id: d.file_id });
+  if (!f.ok) throw new Error("Telegram getFile: " + (f.description || "ошибка"));
+  const imgRes = await fetchT(`https://api.telegram.org/file/bot${env.BOT_TOKEN}/${f.result.file_path}`, {}, 30000);
+  if (!imgRes.ok) throw new Error("не скачалось фото из Telegram");
+  const img = await imgRes.arrayBuffer();
+
+  // Ключ сообщества не может грузить фото на стену напрямую — грузим как фото сообщества для сообщений
+  const server = await vkg(env, "photos.getMessagesUploadServer", {});
+  const form = new FormData();
+  form.append("photo", new Blob([img], { type: "image/jpeg" }), "photo.jpg");
+  const up = await (await fetchT(server.upload_url, { method: "POST", body: form }, 60000)).json().catch(() => ({}));
+  if (!up.photo || up.photo === "[]") throw new Error("ВК не принял фото при загрузке");
+  const saved = await vkg(env, "photos.saveMessagesPhoto", { server: up.server, photo: up.photo, hash: up.hash });
+  const ph = saved[0];
+  const attach = `photo${ph.owner_id}_${ph.id}` + (ph.access_key ? `_${ph.access_key}` : "");
+
+  const params = {
+    owner_id: `-${gid}`,
+    from_group: 1,
+    message: d.text,
+    attachments: attach,
+    guid: d.id + (publishAt ? "_" + publishAt : ""),
+  };
+  if (publishAt) params.publish_date = publishAt;
+  const post = await vkg(env, "wall.post", params);
   return post.post_id;
 }
 
