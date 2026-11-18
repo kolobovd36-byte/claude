@@ -294,6 +294,22 @@
       "day": "wed",
       "lesson": 7,
       "cancel": true
+    },
+    {
+      "week": "2026-11-19",
+      "day": "thu",
+      "lesson": 4,
+      "subject": "Литература",
+      "room": "303",
+      "teacher": "Галина Алексеевна"
+    },
+    {
+      "week": "2026-11-19",
+      "day": "thu",
+      "lesson": 6,
+      "subject": "Физика",
+      "room": "408",
+      "teacher": "Нина Евгеньевна"
     }
   ]
 }
