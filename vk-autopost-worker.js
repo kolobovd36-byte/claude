@@ -433,7 +433,7 @@ async function vkSelfTest(env) {
   const steps = [];
   try {
     await freshVkToken(env);
-    steps.push("refresh ok");
+    steps.push("refresh ok, scope: " + ((await getJSON(env, "vk_auth", {})).scope || "?"));
     const g = await vk(env, "groups.getById", { group_id: groupId(env) });
     steps.push("group ok: " + (((g.groups || g)[0] || {}).name || "?"));
     const srv = await vk(env, "photos.getWallUploadServer", { group_id: groupId(env) });
@@ -796,7 +796,7 @@ async function publishToVk(env, d, publishAt) {
 // ---------- Вход через VK ID (OAuth 2.1 + PKCE), токен продлевается сам ----------
 
 const VK_ID = "https://id.vk.com";
-const VK_SCOPE = "wall photos groups offline"; // offline — токен не привязан к IP (Cloudflare ходит с разных IP)
+const VK_SCOPE = "wall photos groups";
 
 async function vkLoginUrl(env, origin) {
   const verifier = b64url(crypto.getRandomValues(new Uint8Array(48)));
@@ -859,6 +859,7 @@ function saveVkAuth(env, tok, deviceId) {
       device_id: deviceId,
       expires_at: Date.now() + (Number(tok.expires_in) || 3600) * 1000,
       user_id: tok.user_id,
+      scope: tok.scope,
     })
   );
 }
