@@ -11,13 +11,15 @@
 //   ADMIN_ID        — твой числовой Telegram ID (бот покажет его на /start)
 //   GEMINI_API_KEY  — ключ Gemini API (secret)
 //   GEMINI_MODEL    — необязательно, по умолчанию gemini-flash-latest
-//   VK_TOKEN        — токен ВК админа группы с правами wall, photos, groups, offline (secret)
+//   VK_CLIENT_ID    — ID приложения VK ID (id.vk.com → «Для бизнеса»), Redirect URL: https://<worker>/vk-callback
+//   VK_TOKEN        — необязательно: готовый токен ВК вместо входа через VK ID (secret)
 //   VK_GROUP_ID     — id группы без минуса, по умолчанию 243091521
 //   POSTS_PER_DAY   — необязательно, по умолчанию 2
 // Привязки (Settings → Bindings):
 //   KV namespace с именем DB, Workers AI с именем AI.
 // Триггер: Settings → Triggers → Cron Triggers → "0 4 * * *".
 // После деплоя один раз открыть: https://<worker>/setup?key=<WEBHOOK_SECRET>
+// и войти в ВК: https://<worker>/vk-login?key=<WEBHOOK_SECRET> (или командой /vk в боте)
 
 const STYLE_GUIDE = `Ты — автор постов для сообщества ВКонтакте «О! Пригодится» — копилка полезных хитростей и находок для повседневной жизни. Слоган: полезное может быть ещё и интересным. Аудитория — в основном женщины 25–55, которые ведут дом, любят уют и разумную экономию.
 
@@ -61,7 +63,8 @@ const HELP_TEXT = `Привет! Я бот сообщества «О! Приго
 ❌ Отклонить — можно попросить другой пост
 
 /new — сделать посты прямо сейчас
-/cancel — отменить правку`;
+/cancel — отменить правку
+/vk — подключить ВКонтакте`;
 
 const seenUpdates = new Map();
 
@@ -74,6 +77,7 @@ export default {
 
     if (request.method === "GET" && url.pathname === "/setup") {
       if (!safeEqual(url.searchParams.get("key"), env.WEBHOOK_SECRET)) return new Response("forbidden", { status: 403 });
+      await env.DB.put("origin", url.origin);
       const webhook = await tg(env, "setWebhook", {
         url: `${url.origin}/webhook`,
         secret_token: env.WEBHOOK_SECRET,
@@ -84,10 +88,27 @@ export default {
         commands: [
           { command: "new", description: "Сделать посты сейчас" },
           { command: "cancel", description: "Отменить правку" },
+          { command: "vk", description: "Подключить ВКонтакте" },
           { command: "start", description: "Помощь" },
         ],
       });
       return Response.json({ webhook, checks: selfCheck(env) });
+    }
+
+    if (request.method === "GET" && url.pathname === "/vk-login") {
+      if (!safeEqual(url.searchParams.get("key"), env.WEBHOOK_SECRET)) return new Response("forbidden", { status: 403 });
+      if (!env.VK_CLIENT_ID) return new Response("Не задан VK_CLIENT_ID", { status: 500 });
+      return Response.redirect(await vkLoginUrl(env, url.origin), 302);
+    }
+
+    if (request.method === "GET" && url.pathname === "/vk-callback") {
+      try {
+        await vkFinishLogin(env, url);
+        if (env.ADMIN_ID) await send(env, env.ADMIN_ID, "✅ ВКонтакте подключён — теперь посты публикуются в группу.");
+        return htmlPage("✅ ВКонтакте подключён", "Можно закрыть эту вкладку и вернуться в Telegram.");
+      } catch (e) {
+        return htmlPage("⚠️ Не получилось", short(e.message, 300), 400);
+      }
     }
 
     if (request.method === "POST" && url.pathname === "/webhook") {
@@ -120,6 +141,7 @@ function selfCheck(env) {
     BOT_TOKEN: Boolean(env.BOT_TOKEN),
     ADMIN_ID: Boolean(env.ADMIN_ID),
     GEMINI_API_KEY: Boolean(env.GEMINI_API_KEY),
+    VK_CLIENT_ID: Boolean(env.VK_CLIENT_ID),
     VK_TOKEN: Boolean(env.VK_TOKEN),
     KV_DB: Boolean(env.DB),
     WORKERS_AI: Boolean(env.AI),
@@ -156,6 +178,16 @@ async function handleUpdate(update, env) {
   if (/^\/new\b/.test(text)) {
     await send(env, chatId, "⏳ Пишу посты и рисую фото, это займёт около минуты…");
     return generate(env, postsPerDay(env));
+  }
+  if (/^\/vk\b/.test(text)) {
+    if (!env.VK_CLIENT_ID) return send(env, chatId, "Сначала нужно задать VK_CLIENT_ID в настройках воркера.");
+    const origin = await env.DB.get("origin");
+    if (!origin) return send(env, chatId, "Сначала открой /setup воркера.");
+    return tg(env, "sendMessage", {
+      chat_id: chatId,
+      text: "Нажми, чтобы подключить ВКонтакте (войди под аккаунтом-админом группы):",
+      reply_markup: { inline_keyboard: [[{ text: "🔑 Войти через VK ID", url: `${origin}/vk-login?key=${env.WEBHOOK_SECRET}` }]] },
+    });
   }
   if (/^\/cancel\b/.test(text)) {
     await env.DB.delete("awaiting");
@@ -409,7 +441,7 @@ async function gemini(env, { system, user, json = false, temperature = 0.8 }) {
 // ---------- ВКонтакте ----------
 
 async function vk(env, method, params) {
-  const body = new URLSearchParams({ ...params, access_token: env.VK_TOKEN || "", v: VK_V });
+  const body = new URLSearchParams({ ...params, access_token: await vkToken(env), v: VK_V });
   const r = await fetch(`https://api.vk.com/method/${method}`, { method: "POST", body });
   const j = await r.json();
   if (j.error) throw new Error(`ВК ${method}: ${j.error.error_msg} (код ${j.error.error_code})`);
@@ -417,7 +449,6 @@ async function vk(env, method, params) {
 }
 
 async function publishToVk(env, d) {
-  if (!env.VK_TOKEN) throw new Error("не задан VK_TOKEN");
   const gid = groupId(env);
 
   // 1) скачиваем фото из Telegram
@@ -444,6 +475,110 @@ async function publishToVk(env, d) {
     attachments: `photo${ph.owner_id}_${ph.id}`,
   });
   return post.post_id;
+}
+
+// ---------- Вход через VK ID (OAuth 2.1 + PKCE), токен продлевается сам ----------
+
+const VK_ID = "https://id.vk.com";
+const VK_SCOPE = "wall photos groups";
+
+async function vkLoginUrl(env, origin) {
+  const verifier = b64url(crypto.getRandomValues(new Uint8Array(48)));
+  const state = b64url(crypto.getRandomValues(new Uint8Array(24)));
+  const challenge = b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
+  await env.DB.put("vk_pkce:" + state, verifier, { expirationTtl: 900 });
+  const q = new URLSearchParams({
+    response_type: "code",
+    client_id: String(env.VK_CLIENT_ID),
+    scope: VK_SCOPE,
+    redirect_uri: origin + "/vk-callback",
+    state,
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+  });
+  return `${VK_ID}/authorize?${q}`;
+}
+
+async function vkFinishLogin(env, url) {
+  const code = url.searchParams.get("code");
+  const state = url.searchParams.get("state") || "";
+  const deviceId = url.searchParams.get("device_id");
+  if (!code || !deviceId) throw new Error("ВК не вернул код входа. Попробуй ещё раз: /vk в боте.");
+  if (!/^[\w-]{10,100}$/.test(state)) throw new Error("Неверный state");
+  const verifier = await env.DB.get("vk_pkce:" + state);
+  if (!verifier) throw new Error("Ссылка входа устарела. Нажми /vk в боте ещё раз.");
+  await env.DB.delete("vk_pkce:" + state);
+  const tok = await vkIdToken(env, {
+    grant_type: "authorization_code",
+    code,
+    code_verifier: verifier,
+    device_id: deviceId,
+    redirect_uri: url.origin + "/vk-callback",
+    state,
+  });
+  await saveVkAuth(env, tok, deviceId);
+}
+
+async function vkIdToken(env, params) {
+  const r = await fetch(`${VK_ID}/oauth2/auth`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: String(env.VK_CLIENT_ID), ...params }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!j.access_token) throw new Error("VK ID: " + (j.error_description || j.error || `HTTP ${r.status}`));
+  return j;
+}
+
+function saveVkAuth(env, tok, deviceId) {
+  return env.DB.put(
+    "vk_auth",
+    JSON.stringify({
+      access_token: tok.access_token,
+      refresh_token: tok.refresh_token,
+      device_id: deviceId,
+      expires_at: Date.now() + (Number(tok.expires_in) || 3600) * 1000,
+      user_id: tok.user_id,
+    })
+  );
+}
+
+async function vkToken(env) {
+  const a = await getJSON(env, "vk_auth", null);
+  if (!a) {
+    if (env.VK_TOKEN) return env.VK_TOKEN;
+    throw new Error("ВКонтакте не подключён — отправь боту /vk и войди через VK ID");
+  }
+  if (Date.now() < a.expires_at - 120000) return a.access_token;
+  if (!a.refresh_token) throw new Error("токен ВК истёк — отправь боту /vk и войди заново");
+  try {
+    const tok = await vkIdToken(env, {
+      grant_type: "refresh_token",
+      refresh_token: a.refresh_token,
+      device_id: a.device_id,
+      state: b64url(crypto.getRandomValues(new Uint8Array(16))),
+    });
+    await saveVkAuth(env, { ...tok, refresh_token: tok.refresh_token || a.refresh_token }, a.device_id);
+    return tok.access_token;
+  } catch (e) {
+    throw new Error(`не удалось продлить вход в ВК (${e.message}) — отправь боту /vk и войди заново`);
+  }
+}
+
+function b64url(bytes) {
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function htmlPage(title, text, status = 200) {
+  const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  return new Response(
+    `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>` +
+      `<body style="font-family:system-ui;background:#fffaf0;display:grid;place-items:center;min-height:90vh;margin:0">` +
+      `<div style="text-align:center;padding:24px"><h1 style="color:#e8711a">${esc(title)}</h1><p style="font-size:18px">${esc(text)}</p></div>`,
+    { status, headers: { "content-type": "text/html; charset=utf-8" } }
+  );
 }
 
 // ---------- Утилиты ----------
