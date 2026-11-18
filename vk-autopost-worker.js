@@ -20,7 +20,8 @@
 // Привязки (Settings → Bindings):
 //   KV namespace DB, Workers AI с именем AI,
 //   Queue (producer) с именем JOBS; этот же воркер — consumer очереди (batch_size 1, max_retries 0, max_concurrency 1).
-// Триггер: Cron "0 4 * * *" (= 07:00 МСК).
+// Триггеры: Cron "0 4 * * *" (= 07:00 МСК, утренние посты) и "*/10 * * * *" (напоминания об отложенных).
+// PUBLISH_MODE: semi (по умолчанию — бот присылает фото и текст для ручной публикации) или auto.
 // После деплоя: открыть https://<worker>/setup?key=<WEBHOOK_SECRET>, затем /vk в боте.
 
 const STYLE_GUIDE = `Ты — автор постов для сообщества ВКонтакте «О! Пригодится» — копилка полезных хитростей и находок для повседневной жизни. Слоган: полезное может быть ещё и интересным. Аудитория — в основном женщины 25–55, которые ведут дом, любят уют и разумную экономию.
@@ -80,8 +81,8 @@ const MSK_OFFSET = 3 * 3600 * 1000;
 const HELP_TEXT = `Привет! Я бот сообщества «О! Пригодится» 💡
 
 Каждый день в 07:00 по МСК присылаю готовые посты с фото. Под каждым кнопки:
-✅ Опубликовать — сразу выложу в группу ВК (текст + фото)
-🕒 Отложить — выложу в выбранное время
+✅ Опубликовать — пришлю готовые фото и текст, ты за полминуты выложишь их в ВК
+🕒 Отложить — напомню в выбранное время и пришлю фото и текст
 ✏️ Правка — перепишу текст по твоему комментарию или заменю фото
 🖼 Другое фото — нарисую новую картинку
 ❌ Отклонить — можно попросить другой пост
@@ -90,7 +91,6 @@ const HELP_TEXT = `Привет! Я бот сообщества «О! Приго
 /new — сделать посты прямо сейчас
 /new тема — пост на свою тему (например: /new как хранить зелень)
 /cancel — отменить правку
-/vk — подключить или переподключить ВКонтакте
 /status — проверить, всё ли работает`;
 
 const seenUpdates = new Map();
@@ -151,11 +151,6 @@ export default {
           `<body style="margin:0;background:#fffaf0"><img src="${img}" style="max-width:100%"></body>`,
         { headers: { "content-type": "text/html; charset=utf-8" } }
       );
-    }
-
-    if (request.method === "GET" && url.pathname === "/vk-photo-test") {
-      if (!safeEqual(url.searchParams.get("key"), env.WEBHOOK_SECRET)) return new Response("forbidden", { status: 403 });
-      return Response.json(await photoAttachTest(env, url.searchParams));
     }
 
     if (request.method === "GET" && url.pathname === "/vk-login") {
@@ -238,7 +233,8 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(morningRun(env));
+    if (event.cron === "0 4 * * *") ctx.waitUntil(morningRun(env));
+    else ctx.waitUntil(sendDueReminders(env).catch((e) => console.log("reminders:", e && e.message)));
   },
 };
 
@@ -378,6 +374,10 @@ async function onButton(cq, env) {
   const d = await getDraft(env, id);
   if (!d) return send(env, chatId, "Этот черновик уже не найден (старше 7 дней). /new — сделать новые посты.");
 
+  if (!autoMode(env) && (act === "ok" || act === "at" || act === "done" || act === "when")) {
+    return semiAutoButton(env, cq, act, d, arg);
+  }
+
   if (act === "ok" || act === "at") {
     if (d.status === "published" || d.status === "scheduled") {
       return send(env, chatId, d.status === "published" ? "Этот пост уже опубликован ✅" : "Этот пост уже запланирован 🕒");
@@ -487,11 +487,112 @@ async function vkSelfTest(env) {
   }
 }
 
+// ---------- Полуавтомат: ВК не даёт ботам загружать фото на стену, поэтому бот готовит пакет «фото + текст» ----------
+
+function autoMode(env) {
+  return String(env.PUBLISH_MODE || "semi").toLowerCase() === "auto";
+}
+
+function escHtml(x) {
+  return String(x).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+}
+
+async function sendPublishKit(env, chatId, d, intro) {
+  const gid = groupId(env);
+  await tg(env, "sendPhoto", {
+    chat_id: chatId,
+    photo: d.file_id,
+    caption: (intro ? intro + "\n\n" : "") + "1️⃣ Сохрани это фото (нажми на него → Сохранить)",
+  });
+  await tg(env, "sendMessage", {
+    chat_id: chatId,
+    parse_mode: "HTML",
+    text: short(`2️⃣ Нажми на текст ниже — он скопируется:\n\n<pre>${escHtml(d.text)}</pre>`, 4000),
+    disable_web_page_preview: true,
+  });
+  return tg(env, "sendMessage", {
+    chat_id: chatId,
+    text: "3️⃣ Открой группу → «Создать пост» → вставь текст и прикрепи фото → «Опубликовать».\n\nПотом нажми «✅ Я опубликовал», чтобы я отметил пост.",
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "📲 Открыть группу в ВК", url: `https://vk.com/club${gid}` }],
+        [{ text: "✅ Я опубликовал", callback_data: "done:" + d.id }],
+      ],
+    },
+  });
+}
+
+async function semiAutoButton(env, cq, act, d, arg) {
+  const chatId = cq.message.chat.id;
+  const msgId = cq.message.message_id;
+  const who = (cq.from && cq.from.first_name) || "Другой владелец";
+  const others = admins(env).filter((x) => x !== String(chatId));
+
+  if (act === "done") {
+    if (d.status === "published") return send(env, chatId, "Уже отмечен как опубликованный ✅");
+    d.status = "published";
+    await saveDraft(env, d);
+    await env.DB.delete(`r:${d.remind_at || 0}:${d.id}`);
+    await setKeyboard(env, chatId, msgId, { inline_keyboard: [[{ text: "📲 Открыть группу в ВК", url: `https://vk.com/club${groupId(env)}` }]] });
+    for (const o of others) await send(env, o, `✅ ${who} опубликовал пост «${d.topic}».`);
+    return send(env, chatId, `✅ Отметил пост «${d.topic}» как опубликованный.`);
+  }
+  if (d.status === "published") return send(env, chatId, "Этот пост уже опубликован ✅");
+  if (!d.file_id) return send(env, chatId, "У поста нет фото — нажми «🖼 Другое фото» или пришли своё через «✏️ Правка».");
+
+  if (act === "ok") {
+    for (const o of others) await send(env, o, `📤 ${who} публикует пост «${d.topic}».`);
+    return sendPublishKit(env, chatId, d, `📤 Публикуем «${d.topic}»`);
+  }
+  if (act === "when") {
+    const slots = nextSlots(4);
+    return tg(env, "sendMessage", {
+      chat_id: chatId,
+      text: `🕒 Когда напомнить опубликовать «${d.topic}»? В это время я пришлю готовые фото и текст.`,
+      reply_markup: { inline_keyboard: slots.map((t) => [{ text: fmtSlot(t), callback_data: `at:${d.id}:${t}` }]) },
+    });
+  }
+  if (act === "at") {
+    const when = parseInt(arg, 10);
+    if (!Number.isFinite(when) || when * 1000 < Date.now() + 60 * 1000) {
+      return send(env, chatId, "Это время уже прошло — нажми «🕒 Отложить» ещё раз и выбери другое.");
+    }
+    if (d.remind_at) await env.DB.delete(`r:${d.remind_at}:${d.id}`);
+    d.remind_at = when;
+    d.remind_chat = String(chatId);
+    await saveDraft(env, d);
+    await env.DB.put(`r:${when}:${d.id}`, String(chatId), { expirationTtl: DRAFT_TTL });
+    await setKeyboard(env, chatId, msgId, null);
+    for (const o of others) await send(env, o, `🕒 ${who} запланировал пост «${d.topic}» на ${fmtSlot(when)} (МСК).`);
+    return send(env, chatId, `⏰ Напомню ${fmtSlot(when).toLowerCase()} (МСК) и пришлю готовые фото и текст.`);
+  }
+}
+
+// Каждые 10 минут: присылаем напоминания о запланированных постах
+async function sendDueReminders(env) {
+  const now = Math.floor(Date.now() / 1000);
+  const list = await env.DB.list({ prefix: "r:" });
+  for (const k of list.keys) {
+    const [, t, id] = k.name.split(":");
+    if (parseInt(t, 10) > now) continue;
+    const chatId = await env.DB.get(k.name);
+    await env.DB.delete(k.name);
+    const d = await getDraft(env, id);
+    if (!d || d.status === "published" || !chatId) continue;
+    await sendPublishKit(env, chatId, d, `⏰ Пора публиковать «${d.topic}»`);
+  }
+}
+
 async function sendStatus(env, chatId) {
   const lines = ["🔎 Проверка:"];
   lines.push(env.GEMINI_API_KEY ? "✅ Ключ Gemini задан" : "❌ Нет ключа Gemini");
   lines.push(env.AI ? "✅ Генерация картинок подключена" : "❌ Нет Workers AI");
   lines.push(env.JOBS ? "✅ Очередь задач подключена" : "⚠️ Нет очереди — длинные задачи могут обрываться");
+  if (!autoMode(env)) {
+    lines.push("📤 Публикация: полуавтомат — бот присылает готовые фото и текст, ты выкладываешь их в ВК за полминуты");
+    lines.push("⏰ Утренние посты: каждый день в 07:00 МСК, напоминания об отложенных — каждые 10 минут");
+    return send(env, chatId, lines.join("\n"));
+  }
   if (env.VK_GROUP_TOKEN) {
     const t = await vkSelfTest(env);
     lines.push(t.ok ? "✅ ВКонтакте: ключ сообщества работает, публикация доступна" : `❌ ВКонтакте: ${short(t.steps[t.steps.length - 1], 200)}`);
