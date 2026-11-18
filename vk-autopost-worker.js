@@ -126,7 +126,25 @@ export default {
     if (request.method === "GET" && url.pathname === "/vk-login") {
       if (!safeEqual(url.searchParams.get("key"), env.WEBHOOK_SECRET)) return new Response("forbidden", { status: 403 });
       if (!env.VK_CLIENT_ID) return new Response("Не задан VK_CLIENT_ID", { status: 500 });
-      return Response.redirect(await vkLoginUrl(env, url.origin), 302);
+      const flow = url.searchParams.get("flow") || env.VK_FLOW || "classic";
+      return Response.redirect(flow === "vkid" ? await vkLoginUrl(env, url.origin) : await vkClassicUrl(env, url.origin), 302);
+    }
+
+    // Классический вход: токен приходит в #фрагменте адреса — страница сама передаёт его боту
+    if (request.method === "POST" && url.pathname === "/vk-callback") {
+      try {
+        const body = await request.json();
+        await vkFinishClassic(env, body);
+        await broadcast(env, "✅ ВКонтакте подключён — теперь посты публикуются в группу.");
+        return Response.json({ ok: true });
+      } catch (e) {
+        return Response.json({ ok: false, error: short(e.message, 300) }, { status: 400 });
+      }
+    }
+
+    if (request.method === "GET" && url.pathname === "/vk-callback" && !url.searchParams.get("code")) {
+      if (url.searchParams.get("error")) return htmlPage("⚠️ Вход отменён", url.searchParams.get("error_description") || "Попробуй ещё раз: /vk", 400);
+      return classicCallbackPage();
     }
 
     if (request.method === "GET" && url.pathname === "/vk-callback") {
@@ -191,9 +209,11 @@ export default {
 
 async function morningRun(env) {
   // Держим вход в ВК «живым», чтобы токен не протух без публикаций
-  if (env.VK_CLIENT_ID && (await env.DB.get("vk_auth"))) {
+  const auth = await getJSON(env, "vk_auth", null);
+  if (auth) {
     try {
-      await vkToken(env, true);
+      if (auth.classic) await vk(env, "groups.getById", { group_id: groupId(env) });
+      else await vkToken(env, true);
     } catch (e) {
       await broadcast(env, `⚠️ Вход в ВК слетел: ${short(e.message, 200)}\nОтправь /vk и войди заново, иначе публикация не сработает.`);
     }
@@ -423,7 +443,7 @@ async function sendVkLogin(env, chatId) {
   return tg(env, "sendMessage", {
     chat_id: chatId,
     text: "Нажми, чтобы подключить ВКонтакте. Войди аккаунтом, который является руководителем группы:",
-    reply_markup: { inline_keyboard: [[{ text: "🔑 Войти через VK ID", url: `${origin}/vk-login?key=${env.WEBHOOK_SECRET}` }]] },
+    reply_markup: { inline_keyboard: [[{ text: "🔑 Войти в ВКонтакте", url: `${origin}/vk-login?key=${env.WEBHOOK_SECRET}` }]] },
   });
 }
 
@@ -688,7 +708,7 @@ async function vk(env, method, params, retried) {
   if (j.error) {
     const code = j.error.error_code;
     // 5 — токен недействителен: один раз пробуем обновить вход и повторить
-    if (code === 5 && !retried && (await env.DB.get("vk_auth"))) {
+    if (code === 5 && !retried && !/another ip/i.test(j.error.error_msg || "") && (await getJSON(env, "vk_auth", {})).refresh_token) {
       await vkToken(env, true);
       return vk(env, method, params, true);
     }
@@ -817,7 +837,12 @@ async function vkToken(env, force) {
   const a = await getJSON(env, "vk_auth", null);
   if (!a) {
     if (env.VK_TOKEN) return env.VK_TOKEN;
-    throw new Error("ВКонтакте не подключён — отправь боту /vk и войди через VK ID");
+    throw new Error("ВКонтакте не подключён — отправь боту /vk и войди");
+  }
+  if (a.classic) {
+    // классический offline-токен: бессрочный, обновлять нечего
+    if (!a.expires_at || Date.now() < a.expires_at - 60000) return a.access_token;
+    throw new Error("вход в ВК истёк — отправь боту /vk и войди заново");
   }
   if (!force && Date.now() < a.expires_at - 120000) return a.access_token;
   if (!a.refresh_token) throw new Error("вход в ВК истёк — отправь боту /vk и войди заново");
@@ -833,6 +858,65 @@ async function vkToken(env, force) {
   } catch (e) {
     throw new Error(`не удалось продлить вход в ВК (${e.message}) — отправь боту /vk и войди заново`);
   }
+}
+
+// ---------- Классический вход ВК (implicit flow, scope offline — без привязки к IP) ----------
+
+async function vkClassicUrl(env, origin) {
+  const state = b64url(crypto.getRandomValues(new Uint8Array(24)));
+  await env.DB.put("vk_state:" + state, "1", { expirationTtl: 900 });
+  const q = new URLSearchParams({
+    client_id: String(env.VK_CLIENT_ID),
+    display: "page",
+    redirect_uri: origin + "/vk-callback",
+    scope: "wall,photos,groups,offline",
+    response_type: "token",
+    v: VK_V,
+    state,
+    revoke: "1",
+  });
+  return `https://oauth.vk.com/authorize?${q}`;
+}
+
+async function vkFinishClassic(env, body) {
+  const state = String((body && body.state) || "");
+  if (!/^[\w-]{10,100}$/.test(state) || !(await env.DB.get("vk_state:" + state))) {
+    throw new Error("Ссылка входа устарела. Отправь /vk в боте ещё раз.");
+  }
+  await env.DB.delete("vk_state:" + state);
+  if (body.error) throw new Error(body.error_description || body.error);
+  const token = String(body.access_token || "");
+  if (!/^[\w.-]{20,400}$/.test(token)) throw new Error("ВК не вернул токен. Попробуй ещё раз: /vk");
+  const exp = parseInt(body.expires_in || "0", 10);
+  await env.DB.put(
+    "vk_auth",
+    JSON.stringify({ classic: true, access_token: token, expires_at: exp > 0 ? Date.now() + exp * 1000 : 0, user_id: body.user_id })
+  );
+  // сразу проверяем, что токен работает с серверов бота
+  await vk(env, "photos.getWallUploadServer", { group_id: groupId(env) });
+}
+
+function classicCallbackPage() {
+  return new Response(
+    `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Подключение ВК</title>
+<body style="font-family:system-ui;background:#fffaf0;display:grid;place-items:center;min-height:90vh;margin:0">
+<div style="text-align:center;padding:24px"><h1 id="t" style="color:#e8711a">Подключаю ВКонтакте…</h1><p id="p" style="font-size:18px"></p></div>
+<script>
+(async () => {
+  const h = new URLSearchParams(location.hash.slice(1));
+  const body = Object.fromEntries(h.entries());
+  history.replaceState(null, "", location.pathname);
+  const t = document.getElementById("t"), p = document.getElementById("p");
+  try {
+    const r = await fetch(location.pathname, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const j = await r.json();
+    if (j.ok) { t.textContent = "✅ ВКонтакте подключён"; p.textContent = "Можно закрыть эту вкладку и вернуться в Telegram."; }
+    else { t.textContent = "⚠️ Не получилось"; p.textContent = j.error || "Попробуй ещё раз: /vk"; }
+  } catch (e) { t.textContent = "⚠️ Не получилось"; p.textContent = "Нет связи с ботом, попробуй ещё раз."; }
+})();
+</script>`,
+    { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer" } }
+  );
 }
 
 function b64url(bytes) {
