@@ -407,7 +407,8 @@ async function sendStatus(env, chatId) {
     await vkToken(env);
     const g = await vk(env, "groups.getById", { group_id: groupId(env) });
     const grp = (g.groups || g)[0] || {};
-    lines.push(`✅ ВКонтакте подключён, группа: ${grp.name || groupId(env)}`);
+    await vk(env, "photos.getWallUploadServer", { group_id: groupId(env) }); // проверяем право загружать фото
+    lines.push(`✅ ВКонтакте подключён, публикация доступна. Группа: ${grp.name || groupId(env)}`);
   } catch (e) {
     lines.push(`❌ ВКонтакте: ${short(e.message, 150)}`);
   }
@@ -698,11 +699,13 @@ async function vk(env, method, params, retried) {
     }
     const hints = {
       5: " — войди заново: /vk",
+      ip: " — войди заново: /vk (вход должен быть с разрешением offline)",
       15: " — у аккаунта нет прав в группе (нужен редактор или администратор)",
       214: " — публикация в группе запрещена для этого аккаунта",
       219: " — ВК посчитал пост рекламным/спамом",
     };
-    throw new Error(`ВК ${method}: ${j.error.error_msg} (код ${code})${hints[code] || ""}`);
+    const hint = /another ip/i.test(j.error.error_msg || "") ? hints.ip : hints[code] || "";
+    throw new Error(`ВК ${method}: ${j.error.error_msg} (код ${code})${hint}`);
   }
   return j.response;
 }
@@ -743,7 +746,7 @@ async function publishToVk(env, d, publishAt) {
 // ---------- Вход через VK ID (OAuth 2.1 + PKCE), токен продлевается сам ----------
 
 const VK_ID = "https://id.vk.com";
-const VK_SCOPE = "wall photos groups";
+const VK_SCOPE = "wall photos groups offline"; // offline — токен не привязан к IP (Cloudflare ходит с разных IP)
 
 async function vkLoginUrl(env, origin) {
   const verifier = b64url(crypto.getRandomValues(new Uint8Array(48)));
