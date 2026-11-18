@@ -129,6 +129,11 @@ export default {
       return Response.json(await vkSelfTest(env));
     }
 
+    if (request.method === "GET" && url.pathname === "/vk-photo-test") {
+      if (!safeEqual(url.searchParams.get("key"), env.WEBHOOK_SECRET)) return new Response("forbidden", { status: 403 });
+      return Response.json(await photoAttachTest(env, url.searchParams));
+    }
+
     if (request.method === "GET" && url.pathname === "/vk-login") {
       if (!safeEqual(url.searchParams.get("key"), env.WEBHOOK_SECRET)) return new Response("forbidden", { status: 403 });
       if (!env.VK_CLIENT_ID) return new Response("Не задан VK_CLIENT_ID", { status: 500 });
@@ -863,6 +868,62 @@ async function publishWithGroupToken(env, d, publishAt) {
   if (publishAt) params.publish_date = publishAt;
   const post = await vkg(env, "wall.post", params);
   return post.post_id;
+}
+
+// Диагностика: отложенные (невидимые подписчикам) тестовые посты с разными способами прикрепить фото
+async function photoAttachTest(env, q) {
+  const out = {};
+  const gid = groupId(env);
+  if (q.get("delete")) {
+    for (const id of q.get("delete").split(",")) {
+      try {
+        out[id] = await vkg(env, "wall.delete", { owner_id: `-${gid}`, post_id: id });
+      } catch (e) {
+        out[id] = e.message;
+      }
+    }
+    return out;
+  }
+  const list = await env.DB.list({ prefix: "d:" });
+  let d = null;
+  for (const k of list.keys) {
+    const x = await getJSON(env, k.name, null);
+    if (x && x.file_id) { d = x; break; }
+  }
+  if (!d) return { error: "нет черновика с фото" };
+  const f = await tg(env, "getFile", { file_id: d.file_id });
+  const img = await (await fetchT(`https://api.telegram.org/file/bot${env.BOT_TOKEN}/${f.result.file_path}`, {}, 30000)).arrayBuffer();
+  const upload = async (params) => {
+    const server = await vkg(env, "photos.getMessagesUploadServer", params);
+    const form = new FormData();
+    form.append("photo", new Blob([img], { type: "image/jpeg" }), "photo.jpg");
+    const up = await (await fetchT(server.upload_url, { method: "POST", body: form }, 60000)).json();
+    const saved = await vkg(env, "photos.saveMessagesPhoto", { server: up.server, photo: up.photo, hash: up.hash });
+    return saved[0];
+  };
+  const when = Math.floor(Date.now() / 1000) + 20 * 86400;
+  const variants = (q.get("v") || "a,b,c").split(",");
+  for (const v of variants) {
+    try {
+      let ph, attach;
+      if (v === "a") { ph = await upload({}); attach = `photo${ph.owner_id}_${ph.id}`; }
+      if (v === "b") { ph = await upload({}); attach = `photo${ph.owner_id}_${ph.id}_${ph.access_key}`; }
+      if (v === "c") { ph = await upload({ peer_id: admins(env)[0] }); attach = `photo${ph.owner_id}_${ph.id}`; }
+      const post = await vkg(env, "wall.post", { owner_id: `-${gid}`, from_group: 1, message: "ТЕСТ " + v.toUpperCase() + " (будет удалён)", attachments: attach, publish_date: when });
+      let check = null;
+      try {
+        const r = await vkg(env, "wall.getById", { posts: `-${gid}_${post.post_id}` });
+        const item = (r.items || r)[0] || {};
+        check = (item.attachments || []).map((a) => a.type);
+      } catch (e) {
+        check = "не прочитать: " + e.message.slice(0, 80);
+      }
+      out[v] = { attach, owner: ph.owner_id, post_id: post.post_id, check };
+    } catch (e) {
+      out[v] = "ERROR " + e.message;
+    }
+  }
+  return out;
 }
 
 // ---------- Вход через VK ID (OAuth 2.1 + PKCE), токен продлевается сам ----------
