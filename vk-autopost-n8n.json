@@ -1,0 +1,814 @@
+{
+  "name": "VK автопостинг через Telegram",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * *"
+            }
+          ]
+        }
+      },
+      "id": "e00f17b8-9285-4fee-a358-e00da5c6885d",
+      "name": "Каждый день 07:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "updates": [
+          "message",
+          "callback_query"
+        ],
+        "additionalFields": {}
+      },
+      "id": "d417aae2-34ac-44b9-a769-1a7d0c036c04",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "172115b0-17ea-4e6d-9fc3-c910d25ff595"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============ НАСТРОЙКИ — заполни перед запуском ============\nconst cfg = {\n  // Telegram\n  TG_TOKEN: 'ВСТАВЬ_ТОКЕН_БОТА',            // от @BotFather (тот же, что в credential Telegram Trigger)\n  ADMIN_CHAT_ID: '',                        // твой chat_id — бот сам пришлёт его на /start\n\n  // ВКонтакте\n  VK_GROUP_ID: '243091521',                 // id сообщества (без минуса)\n  VK_USER_TOKEN: 'ВСТАВЬ_VK_ТОКЕН',         // токен админа группы с правами wall, photos, groups, offline\n  VK_API_VERSION: '5.199',\n\n  // Текстовая нейросеть (любой OpenAI-совместимый API: OpenRouter, OpenAI, ProxyAPI и т.д.)\n  LLM_BASE_URL: 'https://openrouter.ai/api/v1',\n  LLM_API_KEY: 'ВСТАВЬ_КЛЮЧ',\n  LLM_MODEL: 'google/gemini-2.5-flash',\n\n  // Картинки\n  // IMAGE_MODE: 'openrouter' — модели с картинками через chat/completions (напр. google/gemini-2.5-flash-image)\n  //             'openai'     — /images/generations (gpt-image-1, dall-e-3, ProxyAPI)\n  IMAGE_MODE: 'openrouter',\n  IMAGE_BASE_URL: 'https://openrouter.ai/api/v1',\n  IMAGE_API_KEY: 'ВСТАВЬ_КЛЮЧ',\n  IMAGE_MODEL: 'google/gemini-2.5-flash-image',\n  IMAGE_SIZE: '1024x1024',                  // только для IMAGE_MODE 'openai'\n\n  POSTS_PER_DAY: 2,\n  STYLE_GUIDE: \"Ты — автор постов для сообщества ВКонтакте. [ЗАГЛУШКА: стиль будет заменён после анализа группы vk.com/club243091521]\\n\\nО ЧЁМ ГРУППА: [тематика сообщества]\\nРУБРИКИ (чередуй их): [рубрика 1]; [рубрика 2]; [рубрика 3]\\nПОДАЧА:\\n- Живой разговорный русский язык, обращение к читателю на «ты».\\n- Длина 500–900 символов. Первая строка — цепляющий хук.\\n- Короткие абзацы по 1–3 предложения, 2–4 эмодзи по смыслу, не в каждой строке.\\n- В конце — вопрос к подписчикам, чтобы писали в комментарии.\\n- В самом конце 2–3 хэштега.\\nВИЗУАЛЬНЫЙ СТИЛЬ ФОТО:\\n- Реалистичная фотография, естественный свет, современная эстетика, без коллажей.\\n\",\n};\n// ============================================================\nconst ev = $input.first().json;\nconst isTg = !!(ev.message || ev.callback_query);\nreturn [{ json: { cfg, source: isTg ? 'telegram' : 'schedule', update: isTg ? ev : null } }];"
+      },
+      "id": "7c10ea8b-9648-4125-b2ef-32232a4ca09e",
+      "name": "Настройки",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        150
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function genBody(cfg, count, recent, avoid) {\n  const sys = cfg.STYLE_GUIDE + `\n\nФОРМАТ ОТВЕТА: строго JSON без пояснений:\n{\"posts\":[{\"topic\":\"короткая тема\",\"text\":\"готовый текст поста для ВК\",\"image_prompt\":\"detailed English prompt for the photo\"}]}\nПравила:\n- Каждый пост — отдельная тема, темы не пересекаются между собой.\n- text — полностью готов к публикации: без заголовков вида \"Пост 1\", без markdown (**, #), без кавычек вокруг.\n- image_prompt — на английском, подробно описывает фото по правилам визуального стиля выше. Никакого текста, букв и логотипов на изображении.`;\n  const today = new Date().toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow', weekday: 'long', day: 'numeric', month: 'long' });\n  const user = `Сегодня ${today}. Напиши ${count} ${count === 1 ? 'пост' : 'поста'} на разные темы.`\n    + (recent.length ? `\\nНЕ повторяй недавние темы: ${recent.join('; ')}.` : '')\n    + (avoid ? `\\nЭта тема была отклонена, возьми совсем другую: ${avoid}.` : '');\n  return { model: cfg.LLM_MODEL, temperature: 0.9, response_format: { type: 'json_object' },\n           messages: [{ role: 'system', content: sys }, { role: 'user', content: user }] };\n}\n\nconst { cfg, source, update } = $input.first().json;\nconst s = $getWorkflowStaticData('global');\ns.drafts = s.drafts || {};\ns.topics = s.topics || [];\nconst now = Date.now();\nfor (const [k, d] of Object.entries(s.drafts)) if (now - d.created > 7 * 864e5) delete s.drafts[k];\n\nconst out = (o) => [{ json: { action: 'ignore', ...o } }];\nconst reply = (text, extra = {}) => out({ action: 'reply', reply: text, ...extra });\nconst generate = (count, avoid) =>\n  out({ action: 'generate', count, llm_body: genBody(cfg, count, s.topics.slice(-30), avoid) });\n\nif (source === 'schedule') return generate(cfg.POSTS_PER_DAY);\n\nconst cb = update.callback_query;\nconst msg = update.message;\nconst chatId = String(cb ? cb.message.chat.id : (msg && msg.chat && msg.chat.id) || '');\nconst cbId = cb ? cb.id : null;\n\nif (!cfg.ADMIN_CHAT_ID) {\n  return reply(`Твой chat_id: ${chatId}\\nВставь его в ADMIN_CHAT_ID в узле «Настройки» и сохрани workflow.`, { chat_id: chatId, cb_id: cbId });\n}\nif (chatId !== String(cfg.ADMIN_CHAT_ID)) return out({ action: 'ignore', cb_id: cbId });\n\n// ---------- кнопки\nif (cb) {\n  const [act, id] = String(cb.data || '').split(':');\n  const d = s.drafts[id];\n  const base = { cb_id: cbId, id };\n  if (act === 'regen') return [{ json: { ...generate(1, d ? d.topic : '')[0].json, cb_id: cbId } }];\n  if (!d) return reply('Этот черновик уже не найден (старше 7 дней?). /new — сделать новые посты.', base);\n  if (act === 'ok') {\n    if (d.status === 'published') return reply('Этот пост уже опубликован ✅', base);\n    if (!d.file_id) return reply('У поста нет фото — нажми «🖼 Другое фото» или пришли своё через «✏️ Правка».', base);\n    return out({ action: 'publish', ...base, text: d.text, file_id: d.file_id });\n  }\n  if (act === 'edit') {\n    s.awaiting = id;\n    return reply(`✏️ Правка поста «${d.topic}».\\n\\nНапиши, что изменить в тексте — перепишу.\\nНачни с «фото:», чтобы перерисовать картинку (можно добавить пожелания).\\nИли просто пришли своё фото.\\n/cancel — отмена.`, base);\n  }\n  if (act === 'img') return out({ action: 'image', ...base, image_prompt: d.image_prompt });\n  if (act === 'no') {\n    d.status = 'rejected';\n    if (s.awaiting === id) s.awaiting = null;\n    return reply(`❌ Пост «${d.topic}» отклонён.`, { ...base,\n      reply_markup: { inline_keyboard: [[{ text: '🔁 Сделать другой пост', callback_data: 'regen:' + id }]] } });\n  }\n  return out({ action: 'ignore', cb_id: cbId });\n}\n\n// ---------- сообщения\nconst text = (msg.text || msg.caption || '').trim();\nif (/^\\/(start|help)/.test(text)) {\n  return reply('Привет! Каждый день в 07:00 по МСК я присылаю 2 готовых поста с фото.\\n\\n✅ Опубликовать — сразу в группу ВК\\n✏️ Правка — переписать текст / заменить фото\\n🖼 Другое фото — перерисовать картинку\\n❌ Отклонить — можно попросить другой пост\\n\\n/new — сгенерировать посты прямо сейчас');\n}\nif (/^\\/new/.test(text)) return generate(cfg.POSTS_PER_DAY);\nif (/^\\/cancel/.test(text)) { s.awaiting = null; return reply('Ок, правку отменил.'); }\n\nconst id = s.awaiting;\nconst d = id && s.drafts[id];\nif (!d) return reply('Нажми кнопку под постом или отправь /new, чтобы сделать новые посты.');\n\nif (msg.photo && msg.photo.length) {\n  d.file_id = msg.photo[msg.photo.length - 1].file_id;\n  s.awaiting = null;\n  return out({ action: 'preview_text', id, text: d.text });\n}\nif (!text) return reply('Пришли текст правки или фото.');\n\nconst m = text.match(/^фото\\s*[:\\-—]?\\s*(.*)$/is);\nif (m) {\n  s.awaiting = null;\n  const wish = m[1].trim();\n  if (wish) d.image_prompt = d.image_prompt + '. Additional wishes (translate to visuals): ' + wish;\n  return out({ action: 'image', id, image_prompt: d.image_prompt });\n}\n\ns.awaiting = null;\nconst llm_body = { model: cfg.LLM_MODEL, temperature: 0.7, messages: [\n  { role: 'system', content: cfg.STYLE_GUIDE + '\\n\\nТы редактируешь готовый пост. Верни ТОЛЬКО новый текст поста целиком, без пояснений, без кавычек и без markdown.' },\n  { role: 'user', content: `Текущий пост:\\n---\\n${d.text}\\n---\\n\\nПравка: ${text}` },\n]};\nreturn out({ action: 'rewrite', id, llm_body });"
+      },
+      "id": "b1b8ab25-ed1c-4e84-bb21-aee2dc957ae8",
+      "name": "Роутер",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        150
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.cb_id ? 'https://api.telegram.org/bot' + $('Настройки').first().json.cfg.TG_TOKEN + '/answerCallbackQuery?callback_query_id=' + $json.cb_id : 'https://api.telegram.org/bot' + $('Настройки').first().json.cfg.TG_TOKEN + '/getMe' }}",
+        "options": {}
+      },
+      "id": "d44f1e92-bf2b-4a93-bc26-0a2eabb37bed",
+      "name": "TG: ответ на кнопку",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        -100
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 7,
+        "output": "={{ [\"generate\", \"rewrite\", \"image\", \"publish\", \"preview_text\", \"reply\"].indexOf($json.action) === -1 ? 6 : [\"generate\", \"rewrite\", \"image\", \"publish\", \"preview_text\", \"reply\"].indexOf($json.action) }}",
+        "options": {}
+      },
+      "id": "497e9f8f-615d-47bd-84f3-dc6f370733e2",
+      "name": "Что делаем?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        720,
+        150
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Настройки').first().json.cfg.LLM_BASE_URL }}/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Настройки').first().json.cfg.LLM_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.llm_body) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "211c841e-7c5e-4f09-b435-344b7762b961",
+      "name": "LLM: написать посты",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        -60
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = $getWorkflowStaticData('global');\ns.drafts = s.drafts || {}; s.topics = s.topics || [];\nlet raw = $input.first().json.choices?.[0]?.message?.content || '';\nraw = raw.replace(/^```(?:json)?\\s*/i, '').replace(/```\\s*$/, '').trim();\nlet posts;\ntry { posts = JSON.parse(raw).posts; } catch (e) {\n  const m = raw.match(/\\{[\\s\\S]*\\}/); posts = m ? JSON.parse(m[0]).posts : null;\n}\nif (!Array.isArray(posts) || !posts.length) throw new Error('Нейросеть вернула не JSON: ' + raw.slice(0, 300));\nconst want = $('Роутер').first().json.count || posts.length;\nreturn posts.slice(0, want).map((p, i) => {\n  const id = Date.now().toString(36) + i;\n  s.drafts[id] = { topic: p.topic, text: p.text, image_prompt: p.image_prompt, file_id: null, status: 'draft', created: Date.now() };\n  s.topics.push(p.topic); s.topics = s.topics.slice(-60);\n  return { json: { id, image_prompt: p.image_prompt } };\n});"
+      },
+      "id": "88f16d88-a3a9-446c-94b7-377836c7f351",
+      "name": "Разобрать посты",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Настройки').first().json.cfg;\nreturn $input.all().map(it => {\n  const { id, image_prompt } = it.json;\n  let img_url, img_body;\n  if (cfg.IMAGE_MODE === 'openai') {\n    img_url = cfg.IMAGE_BASE_URL + '/images/generations';\n    img_body = { model: cfg.IMAGE_MODEL, prompt: image_prompt, size: cfg.IMAGE_SIZE, n: 1 };\n    if (/^dall-e/.test(cfg.IMAGE_MODEL)) img_body.response_format = 'b64_json';\n  } else {\n    img_url = cfg.IMAGE_BASE_URL + '/chat/completions';\n    img_body = { model: cfg.IMAGE_MODEL, modalities: ['image', 'text'],\n      messages: [{ role: 'user', content: 'Generate a photo. No text, letters or logos in the image. ' + image_prompt }] };\n  }\n  return { json: { id, img_url, img_body } };\n});"
+      },
+      "id": "b53f89a2-fe93-4fa0-97b0-9a21c98b328f",
+      "name": "Фото: запрос",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        150
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.img_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Настройки').first().json.cfg.IMAGE_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.img_body) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "e3231b6e-5ff6-4a9f-8a97-50c83e3b6f87",
+      "name": "Фото: генерация",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        150
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const reqs = $('Фото: запрос').all();\nconst s = $getWorkflowStaticData('global');\nreturn $input.all().map((it, i) => {\n  const r = it.json;\n  const id = reqs[i].json.id;\n  let b64 = r.data?.[0]?.b64_json;\n  if (!b64) {\n    const msg = r.choices?.[0]?.message || {};\n    const url = msg.images?.[0]?.image_url?.url || msg.images?.[0]?.url\n      || (Array.isArray(msg.content) ? msg.content.find(c => c.type === 'image_url')?.image_url?.url : null);\n    if (url && url.startsWith('data:')) b64 = url.split(',')[1];\n  }\n  if (!b64) throw new Error('Не получил картинку от API: ' + JSON.stringify(r).slice(0, 400));\n  const topic = s.drafts?.[id]?.topic || '';\n  return { json: { id, caption: '🖼 ' + topic },\n           binary: { photo: { data: b64, mimeType: 'image/png', fileName: id + '.png', fileExtension: 'png' } } };\n});"
+      },
+      "id": "bc2391fc-d7a7-4a0b-a59d-274394a0db66",
+      "name": "Фото: в файл",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        150
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $('Настройки').first().json.cfg.TG_TOKEN }}/sendPhoto",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $('Настройки').first().json.cfg.ADMIN_CHAT_ID }}"
+            },
+            {
+              "name": "caption",
+              "value": "={{ $json.caption }}"
+            },
+            {
+              "parameterType": "formBinaryData",
+              "name": "photo",
+              "inputDataFieldName": "photo"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "18e997c3-c5c3-4799-a303-e6c95e47bc12",
+      "name": "TG: отправить фото",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        150
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = $getWorkflowStaticData('global');\nconst src = $('Фото: в файл').all();\nreturn $input.all().map((it, i) => {\n  const id = src[i].json.id;\n  const photos = it.json.result?.photo || [];\n  const d = s.drafts[id];\n  if (d && photos.length) d.file_id = photos[photos.length - 1].file_id;\n  return { json: { id, text: d ? d.text : '(черновик не найден)' } };\n});"
+      },
+      "id": "4458613c-f4bb-428d-a162-9f07afd7698d",
+      "name": "Сохранить фото в черновик",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        150
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $('Настройки').first().json.cfg.TG_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $('Настройки').first().json.cfg.ADMIN_CHAT_ID, text: $json.text, reply_markup: { inline_keyboard: [[{ text: '✅ Опубликовать', callback_data: 'ok:' + $json.id }],[{ text: '✏️ Правка', callback_data: 'edit:' + $json.id }, { text: '🖼 Другое фото', callback_data: 'img:' + $json.id }],[{ text: '❌ Отклонить', callback_data: 'no:' + $json.id }]] } }) }}",
+        "options": {}
+      },
+      "id": "f67a63c7-a591-4448-ad09-abd788bb38b9",
+      "name": "TG: текст + кнопки",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2640,
+        150
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Настройки').first().json.cfg.LLM_BASE_URL }}/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Настройки').first().json.cfg.LLM_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.llm_body) }}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "153476d4-5442-4c5c-92ce-7bc598be31a9",
+      "name": "LLM: правка текста",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        360
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = $getWorkflowStaticData('global');\nconst id = $('Роутер').first().json.id;\nlet t = ($input.first().json.choices?.[0]?.message?.content || '').trim();\nt = t.replace(/^```\\w*\\s*/, '').replace(/```$/, '').trim();\nif (!t) throw new Error('Пустой ответ нейросети');\ns.drafts[id].text = t;\nreturn [{ json: { id, text: t } }];"
+      },
+      "id": "43296a79-f950-4db1-88be-d2eff82960ac",
+      "name": "Применить правку",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.vk.com/method/photos.getWallUploadServer?group_id={{ $('Настройки').first().json.cfg.VK_GROUP_ID }}&v={{ $('Настройки').first().json.cfg.VK_API_VERSION }}&access_token={{ $('Настройки').first().json.cfg.VK_USER_TOKEN }}",
+        "options": {}
+      },
+      "id": "62716751-3e55-49aa-a87e-bcd630d9ce5d",
+      "name": "VK: сервер загрузки",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        600
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.telegram.org/bot{{ $('Настройки').first().json.cfg.TG_TOKEN }}/getFile?file_id={{ $('Роутер').first().json.file_id }}",
+        "options": {}
+      },
+      "id": "07dd4d07-ba17-44fb-baa0-7d0f2c6df6fc",
+      "name": "TG: getFile",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        600
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.telegram.org/file/bot{{ $('Настройки').first().json.cfg.TG_TOKEN }}/{{ $json.result.file_path }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "photo"
+            }
+          }
+        }
+      },
+      "id": "72154652-6377-4938-b331-118f291828ee",
+      "name": "TG: скачать фото",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        600
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('VK: сервер загрузки').first().json.response.upload_url }}",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "photo",
+              "inputDataFieldName": "photo"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "id": "3d60d748-a73c-42da-8637-c8cde75e3a63",
+      "name": "VK: загрузить фото",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        600
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.vk.com/method/photos.saveWallPhoto",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "group_id",
+              "value": "={{ $('Настройки').first().json.cfg.VK_GROUP_ID }}"
+            },
+            {
+              "name": "server",
+              "value": "={{ $json.server }}"
+            },
+            {
+              "name": "photo",
+              "value": "={{ $json.photo }}"
+            },
+            {
+              "name": "hash",
+              "value": "={{ $json.hash }}"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ $('Настройки').first().json.cfg.VK_USER_TOKEN }}"
+            },
+            {
+              "name": "v",
+              "value": "={{ $('Настройки').first().json.cfg.VK_API_VERSION }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e6096ecd-aff5-497c-9a20-8189efdf8236",
+      "name": "VK: сохранить фото",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        600
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.vk.com/method/wall.post",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "owner_id",
+              "value": "=-{{ $('Настройки').first().json.cfg.VK_GROUP_ID }}"
+            },
+            {
+              "name": "from_group",
+              "value": "1"
+            },
+            {
+              "name": "message",
+              "value": "={{ $('Роутер').first().json.text }}"
+            },
+            {
+              "name": "attachments",
+              "value": "=photo{{ $json.response[0].owner_id }}_{{ $json.response[0].id }}"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ $('Настройки').first().json.cfg.VK_USER_TOKEN }}"
+            },
+            {
+              "name": "v",
+              "value": "={{ $('Настройки').first().json.cfg.VK_API_VERSION }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "1a93f533-1863-4462-b069-7e79ac18155d",
+      "name": "VK: опубликовать",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        600
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Настройки').first().json.cfg;\nconst r = $('Роутер').first().json;\nconst s = $getWorkflowStaticData('global');\nconst steps = ['VK: сервер загрузки', 'TG: getFile', 'VK: загрузить фото', 'VK: сохранить фото', 'VK: опубликовать'];\nlet err = null;\nfor (const n of steps) {\n  let j;\n  try { j = $(n).first().json; } catch (e) { err = `${n}: шаг не выполнился`; break; }\n  if (!j) { err = `${n}: пустой ответ`; break; }\n  if (j.error) { err = `${n}: ` + (j.error.error_msg || j.error.message || JSON.stringify(j.error)); break; }\n  if (j.ok === false) { err = `${n}: ` + (j.description || 'ошибка Telegram'); break; }\n  if (n === 'VK: загрузить фото' && (!j.photo || j.photo === '[]')) { err = 'VK не принял фото при загрузке'; break; }\n}\nif (err) return [{ json: { reply: '⚠️ Не получилось опубликовать.\\n' + err + '\\n\\nЧерновик сохранён — можно нажать «✅ Опубликовать» ещё раз.' } }];\nconst postId = $('VK: опубликовать').first().json.response.post_id;\nif (s.drafts[r.id]) { s.drafts[r.id].status = 'published'; s.drafts[r.id].vk_post = postId; }\nreturn [{ json: { reply: `✅ Опубликовано!\\nhttps://vk.com/wall-${cfg.VK_GROUP_ID}_${postId}` } }];"
+      },
+      "id": "3b4a70be-af4d-4815-99f4-64b15d0c480b",
+      "name": "Итог публикации",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $('Настройки').first().json.cfg.TG_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify(Object.assign({ chat_id: $json.chat_id || $('Настройки').first().json.cfg.ADMIN_CHAT_ID, text: $json.reply }, $json.reply_markup ? { reply_markup: $json.reply_markup } : {})) }}",
+        "options": {}
+      },
+      "id": "35e8ba46-ac68-439f-9c53-b504b9d6278c",
+      "name": "TG: ответ",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2640,
+        600
+      ],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Каждый день 07:00": {
+      "main": [
+        [
+          {
+            "node": "Настройки",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Настройки",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Настройки": {
+      "main": [
+        [
+          {
+            "node": "Роутер",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Роутер": {
+      "main": [
+        [
+          {
+            "node": "TG: ответ на кнопку",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Что делаем?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Что делаем?": {
+      "main": [
+        [
+          {
+            "node": "LLM: написать посты",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "LLM: правка текста",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Фото: запрос",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "VK: сервер загрузки",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "TG: текст + кнопки",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "TG: ответ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM: написать посты": {
+      "main": [
+        [
+          {
+            "node": "Разобрать посты",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Разобрать посты": {
+      "main": [
+        [
+          {
+            "node": "Фото: запрос",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Фото: запрос": {
+      "main": [
+        [
+          {
+            "node": "Фото: генерация",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Фото: генерация": {
+      "main": [
+        [
+          {
+            "node": "Фото: в файл",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Фото: в файл": {
+      "main": [
+        [
+          {
+            "node": "TG: отправить фото",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TG: отправить фото": {
+      "main": [
+        [
+          {
+            "node": "Сохранить фото в черновик",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Сохранить фото в черновик": {
+      "main": [
+        [
+          {
+            "node": "TG: текст + кнопки",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM: правка текста": {
+      "main": [
+        [
+          {
+            "node": "Применить правку",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Применить правку": {
+      "main": [
+        [
+          {
+            "node": "TG: текст + кнопки",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "VK: сервер загрузки": {
+      "main": [
+        [
+          {
+            "node": "TG: getFile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TG: getFile": {
+      "main": [
+        [
+          {
+            "node": "TG: скачать фото",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TG: скачать фото": {
+      "main": [
+        [
+          {
+            "node": "VK: загрузить фото",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "VK: загрузить фото": {
+      "main": [
+        [
+          {
+            "node": "VK: сохранить фото",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "VK: сохранить фото": {
+      "main": [
+        [
+          {
+            "node": "VK: опубликовать",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "VK: опубликовать": {
+      "main": [
+        [
+          {
+            "node": "Итог публикации",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Итог публикации": {
+      "main": [
+        [
+          {
+            "node": "TG: ответ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Moscow"
+  },
+  "pinData": {},
+  "active": false
+}
