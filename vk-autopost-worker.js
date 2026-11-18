@@ -129,6 +129,30 @@ export default {
       return Response.json(await vkSelfTest(env));
     }
 
+    // Картинка поста и страница-карточка (для вложения-ссылки в ВК)
+    const pm = /^\/(img|p)\/(\w{1,40})(?:\.jpg)?$/.exec(url.pathname);
+    if (request.method === "GET" && pm) {
+      const d = await getDraft(env, pm[2]);
+      if (!d || !d.file_id) return new Response("not found", { status: 404 });
+      if (pm[1] === "img") {
+        const f = await tg(env, "getFile", { file_id: d.file_id });
+        if (!f.ok) return new Response("not found", { status: 404 });
+        const r = await fetchT(`https://api.telegram.org/file/bot${env.BOT_TOKEN}/${f.result.file_path}`, {}, 30000);
+        return new Response(r.body, { headers: { "content-type": "image/jpeg", "cache-control": "public, max-age=604800" } });
+      }
+      const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+      const title = esc(String(d.text || "").split("\n")[0].slice(0, 120));
+      const img = `${url.origin}/img/${d.id}.jpg`;
+      return new Response(
+        `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
+          `<title>${title}</title><meta property="og:title" content="${title}"><meta property="og:image" content="${img}">` +
+          `<meta property="og:image:width" content="1024"><meta property="og:image:height" content="1024"><meta property="og:type" content="article">` +
+          `<meta http-equiv="refresh" content="0;url=https://vk.com/club${groupId(env)}">` +
+          `<body style="margin:0;background:#fffaf0"><img src="${img}" style="max-width:100%"></body>`,
+        { headers: { "content-type": "text/html; charset=utf-8" } }
+      );
+    }
+
     if (request.method === "GET" && url.pathname === "/vk-photo-test") {
       if (!safeEqual(url.searchParams.get("key"), env.WEBHOOK_SECRET)) return new Response("forbidden", { status: 403 });
       return Response.json(await photoAttachTest(env, url.searchParams));
@@ -903,12 +927,24 @@ async function photoAttachTest(env, q) {
   };
   const when = Math.floor(Date.now() / 1000) + 20 * 86400;
   const variants = (q.get("v") || "a,b,c").split(",");
+  const origin = (await env.DB.get("origin")) || "";
   for (const v of variants) {
     try {
       let ph, attach;
       if (v === "a") { ph = await upload({}); attach = `photo${ph.owner_id}_${ph.id}`; }
       if (v === "b") { ph = await upload({}); attach = `photo${ph.owner_id}_${ph.id}_${ph.access_key}`; }
       if (v === "c") { ph = await upload({ peer_id: admins(env)[0] }); attach = `photo${ph.owner_id}_${ph.id}`; }
+      if (v === "d") {
+        const server = await vkg(env, "docs.getMessagesUploadServer", { type: "doc" });
+        const form = new FormData();
+        form.append("file", new Blob([img], { type: "image/jpeg" }), "photo.jpg");
+        const up = await (await fetchT(server.upload_url, { method: "POST", body: form }, 60000)).json();
+        const saved = await vkg(env, "docs.save", { file: up.file, title: "photo.jpg" });
+        const doc = saved.doc || saved[0] || saved;
+        ph = { owner_id: doc.owner_id };
+        attach = `doc${doc.owner_id}_${doc.id}`;
+      }
+      if (v === "e") { ph = { owner_id: "-" }; attach = `${origin}/p/${d.id}`; }
       const post = await vkg(env, "wall.post", { owner_id: `-${gid}`, from_group: 1, message: "ТЕСТ " + v.toUpperCase() + " (будет удалён)", attachments: attach, publish_date: when });
       let check = null;
       try {
