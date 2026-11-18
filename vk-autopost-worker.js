@@ -16,7 +16,8 @@
 //   VK_GROUP_ID     — id группы без минуса, по умолчанию 243091521
 //   POSTS_PER_DAY   — необязательно, по умолчанию 2
 // Привязки (Settings → Bindings):
-//   KV namespace с именем DB, Workers AI с именем AI.
+//   KV namespace с именем DB, Workers AI с именем AI,
+//   Queue (producer) с именем JOBS + этот же воркер как consumer очереди (max_retries 0).
 // Триггер: Settings → Triggers → Cron Triggers → "0 4 * * *".
 // После деплоя один раз открыть: https://<worker>/setup?key=<WEBHOOK_SECRET>
 // и войти в ВК: https://<worker>/vk-login?key=<WEBHOOK_SECRET> (или командой /vk в боте)
@@ -123,11 +124,24 @@ export default {
         return new Response("ok");
       }
       if (isDuplicate(update.update_id)) return new Response("ok");
-      ctx.waitUntil(safeHandle(update, env));
+      if (env.JOBS) {
+        // Долгую работу (нейросеть, картинки, ВК) делаем в очереди: там до 15 минут вместо 30 секунд.
+        if (update.callback_query) ctx.waitUntil(tg(env, "answerCallbackQuery", { callback_query_id: update.callback_query.id }));
+        await env.JOBS.send({ update });
+      } else {
+        ctx.waitUntil(safeHandle(update, env));
+      }
       return new Response("ok");
     }
 
     return new Response("О! Пригодится — бот работает ✅");
+  },
+
+  async queue(batch, env) {
+    for (const msg of batch.messages) {
+      await safeHandle(msg.body.update, env);
+      msg.ack(); // без повторов, чтобы пост не опубликовался дважды
+    }
   },
 
   async scheduled(event, env, ctx) {
@@ -163,7 +177,7 @@ async function handleUpdate(update, env) {
   const cq = update.callback_query;
   const m = update.message;
   const chatId = cq ? cq.message && cq.message.chat.id : m && m.chat && m.chat.id;
-  if (cq) tg(env, "answerCallbackQuery", { callback_query_id: cq.id }); // убираем «часики» на кнопке
+  if (cq && !env.JOBS) tg(env, "answerCallbackQuery", { callback_query_id: cq.id }); // убираем «часики» на кнопке
 
   if (!env.ADMIN_ID) {
     if (chatId) await send(env, chatId, `Твой Telegram ID: ${chatId}\nВпиши его в переменную ADMIN_ID воркера.`);
