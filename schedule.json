@@ -310,6 +310,12 @@
       "subject": "Физика",
       "room": "408",
       "teacher": "Нина Евгеньевна"
+    },
+    {
+      "week": "2026-11-20",
+      "day": "fri",
+      "lesson": 4,
+      "cancel": true
     }
   ]
 }
