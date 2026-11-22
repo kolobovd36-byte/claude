@@ -316,6 +316,52 @@
       "day": "fri",
       "lesson": 4,
       "cancel": true
+    },
+    {
+      "week": "2026-11-23",
+      "day": "mon",
+      "lesson": 1,
+      "cancel": true
+    },
+    {
+      "week": "2026-11-23",
+      "day": "mon",
+      "lesson": 2,
+      "cancel": true
+    },
+    {
+      "week": "2026-11-23",
+      "day": "mon",
+      "lesson": 3,
+      "cancel": true
+    },
+    {
+      "week": "2026-11-23",
+      "day": "mon",
+      "lesson": 5,
+      "subject": "Алгебра",
+      "room": "304",
+      "teacher": "Ирина Юрьевна"
+    },
+    {
+      "week": "2026-11-23",
+      "day": "mon",
+      "lesson": 7,
+      "set": "en",
+      "group": "1",
+      "subject": "Английский",
+      "room": "415",
+      "teacher": "Ирина Владимировна"
+    },
+    {
+      "week": "2026-11-23",
+      "day": "mon",
+      "lesson": 7,
+      "set": "en",
+      "group": "2",
+      "subject": "Английский",
+      "room": "416",
+      "teacher": "Фатима Руслановна"
     }
   ]
 }
