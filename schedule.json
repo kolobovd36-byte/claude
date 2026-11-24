@@ -362,6 +362,28 @@
       "subject": "Английский",
       "room": "416",
       "teacher": "Фатима Руслановна"
+    },
+    {
+      "week": "2026-11-25",
+      "day": "wed",
+      "lesson": 4,
+      "cancel": true
+    },
+    {
+      "week": "2026-11-25",
+      "day": "wed",
+      "lesson": 4,
+      "set": "en",
+      "group": "1",
+      "subject": "Английский",
+      "room": "415",
+      "teacher": "Ирина Владимировна"
+    },
+    {
+      "week": "2026-11-25",
+      "day": "wed",
+      "lesson": 7,
+      "cancel": true
     }
   ]
 }
